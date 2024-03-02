@@ -1,33 +1,201 @@
+#!/usr/bin/env python
+# coding: utf-8
 
-# !module load openmind8/cuda/11.7
-# !python --version #3.10.12
+# In[1]:
 
-# !pip install --upgrade accelerate
-# !pip install --upgrade transformers
 
+# !pip install transformers==4.38.1
+# !pip install accelerate==0.27.2
+
+
+# In[2]:
+
+
+# Config
+exit_if_no_cuda = True #exit if cuda not found
+# Set default values
+toy = False
+model_name = "google/gemma-2b-it"
+with_interaction = True
+
+# Check for arguments and assign them if they exist
+import sys
+if len(sys.argv) > 1:
+	toy = sys.argv[1]
+	if toy == 0:
+		toy = False
+	elif toy == 1:
+		toy = True
+if len(sys.argv) > 2:
+	model_name = sys.argv[2]
+if len(sys.argv) > 3:
+	with_interaction = sys.argv[3]
+	if with_interaction == 0:
+		with_interaction = False
+	elif with_interaction == 1:
+		with_interaction = True
+
+
+
+
+location = 'openmind'
+
+
+
+
+
+# In[3]:
 
 
 import os
+import subprocess
 import pandas as pd
+import time
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-import pandas as pd
-import accelerate
+import datetime
+import random
+from tqdm import tqdm
+import random
+import datetime
+import numpy as np
+from sklearn.metrics import classification_report
 import torch
-from importlib import reload
-print('accelerate', accelerate.__version__)
 import transformers
-print('transformers', transformers.__version__)
-
-# Local
-import api_keys
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import re
 from huggingface_hub import login
-login(token=api_keys.huggingface)
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from sklearn.metrics import (
+	ConfusionMatrixDisplay,
+	auc,
+	confusion_matrix,
+	f1_score,
+	precision_recall_curve,
+	precision_score,
+	recall_score,
+	roc_auc_score,
+)
+from sklearn import metrics
+from scipy.stats import pearsonr, spearmanr
+
+
+import api_keys # local
+
+pd.set_option("display.max_columns", None)
+
+if location == 'openmind':
+  input_dir = '/nese/mit/group/sig/projects/dlow/ctl/datasets/'
+  output_dir = './data/output/ml_performance/'
+elif location =='local':
+  input_dir = '/Users/danielmlow/data/ctl/input/datasets/'
+  output_dir = '/home/dlow/datum/lexicon/data/output/ml_performance/'
+
+
+set_name = 'train10_test'	
+filename = f'{set_name}_metadata_messages_clean.gzip'
+test = pd.read_parquet(input_dir + filename, engine='pyarrow')
+
+
+# In[40]:
+
+
+import logging
+# Function to add a file handler to the root logger
+def add_file_handler(log_filename):
+	# Create a file handler that logs even debug messages
+	fh = logging.FileHandler(log_filename, mode='a')
+	fh.setLevel(logging.INFO)
+	# Create formatter and add it to the handler
+	formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+	fh.setFormatter(formatter)
+	# Remove all handlers associated with the root logger object.
+	for handler in logging.root.handlers[:]:
+		logging.root.removeHandler(handler)
+	# Add the handler to the root logger
+	logging.root.addHandler(fh)
+
+# Define your custom print function
+def custom_print(*args, **kwargs):
+	# Convert all arguments into a string. You might want to customize the separator.
+	message = ' '.join(str(arg) for arg in args)
+	# Log the message using logging
+	logging.info(message)
+
+
+# In[6]:
+
+
+model_name_clean = model_name.replace('/', '-')
+ts = datetime.datetime.now().strftime('%Y-%m-%dT%H-%M-%S')
+output_dir_i = output_dir+f'{model_name_clean}_{ts}/' 
+os.makedirs(output_dir_i , exist_ok=True)
+# this will get replaced at inference time creating one for each DV
+logging.basicConfig(filename=output_dir_i+f'log_print_statements_gpu_info.txt', filemode='a', format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+print = custom_print
+
+
+# In[ ]:
+
+
+print(f"Toy: {toy}, Model Name: {model_name}, With Interaction: {with_interaction}")
+print('running:', input_dir+filename)
+print('location:', location)
+print('\n')
+
+
+# In[7]:
+
+
+ctl_tags13 = ['self_harm',
+ 'suicide',
+ 'bully',
+ 'abuse_physical',
+ 'abuse_sexual',
+ 'relationship',
+ 'bereavement',
+ 'isolated',
+ 'anxiety',
+ 'depressed',
+ 'gender',
+ 'eating',
+ 'substance']
+
+
+# prompt_names = dict(zip(ctl_tags13, ['']*len(ctl_tags13)))
+prompt_names = {'self_harm': 'self harm or self injury',
+ 'suicide': 'suicidal thoughts or suicidal behaviors',
+ 'bully': 'bullying',
+ 'abuse_physical': 'physical abuse',
+ 'abuse_sexual': 'sexual abuse',
+ 'relationship': 'relationship issues',
+ 'bereavement': 'bereavement or grief',
+ 'isolated': 'loneliness or social isolation',
+ 'anxiety': 'anxiety',
+ 'depressed': 'depression',
+ 'gender': 'gender identity',
+ 'eating': 'an eating disorder or body image issues',
+ 'substance': 'substance use'}
+
+print('/n')
+print('prompt_names:', prompt_names)
+
+
+# In[8]:
+
+
+login(token=api_keys.huggingface)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 device    
+
+if device =='cpu' exit_if_no_cuda:
+	sys.exit()
 
 # Check if CUDA is available
 if torch.cuda.is_available():
@@ -45,242 +213,224 @@ if torch.cuda.is_available():
 
 else:
 	print("CUDA is not available. Please check your installation and if your hardware supports CUDA.")
+	print('/n')
 
 
 
 
 
 
-import re
+
+
+# In[9]:
+
+
+def run_nvitop():
+
+	# Command to run 'nvitop' in one-shot mode
+	command = ["python3", "-m", "nvitop", "-1"]
+
+	# Run the command and capture its output
+
+	try: 
+		result = subprocess.run(command, capture_output=True, text=True)
+		print(result)
+		print(result.stdout)
+	except: pass
+	return
 
 
 def create_binary_dataset(df_metadata, dv = 'suicide', n_per_dv = 3000):
-    df_metadata_tag_1 = df_metadata[df_metadata[dv]==1].sample(n=n_per_dv,random_state=123)
-    df_metadata_tag_0 = df_metadata[df_metadata[dv]==0].sample(n=n_per_dv,random_state=123)
-    assert df_metadata_tag_1.shape[0] == n_per_dv
-    assert df_metadata_tag_0.shape[0] == n_per_dv
+	df_metadata_tag_1 = df_metadata[df_metadata[dv]==1].sample(n=n_per_dv,random_state=123)
+	df_metadata_tag_0 = df_metadata[df_metadata[dv]==0].sample(n=n_per_dv,random_state=123)
+	assert df_metadata_tag_1.shape[0] == n_per_dv
+	assert df_metadata_tag_0.shape[0] == n_per_dv
 
-    df_metadata_tag = pd.concat([df_metadata_tag_1, df_metadata_tag_0]).reset_index(drop=True)
+	df_metadata_tag = pd.concat([df_metadata_tag_1, df_metadata_tag_0]).sample(frac=1).reset_index(drop=True)
 
-    return df_metadata_tag
+	return df_metadata_tag
+
+
+
+
+def find_json_in_string(string: str) -> str:
+	"""Finds the JSON object in a string.
+
+	Parameters
+	----------
+	string : str
+		The string to search for a JSON object.
+
+	Returns
+	-------
+	json_string : str
+	"""
+	start = string.find("{")
+	end = string.rfind("}")
+	if start != -1 and end != -1:
+		json_string = string[start : end + 1]
+	else:
+		json_string = "{}"
+	return json_string
+
+
+# In[10]:
+
+
+def cm(y_true, y_pred, output_dir, model_name, ts, classes = ["SITB-", "SITB+"], save=True):
+	cm = confusion_matrix(y_true, y_pred, normalize=None)
+	cm_df = pd.DataFrame(cm, index=classes , columns=classes )
+	cm_df_meaning = pd.DataFrame([["TN", "FP"], ["FN", "TP"]], index=classes , columns=classes )
+
+	cm_norm = confusion_matrix(y_true, y_pred, normalize="all")
+	cm_norm = (cm_norm * 100).round(2)
+	cm_df_norm = pd.DataFrame(cm_norm, index=classes , columns=classes )
+
+	
+	# plt.rcParams["figure.figsize"] = [4, 4]
+	# ConfusionMatrixDisplay(cm_norm, display_labels=classes ).plot()
+	# plt.tight_layout()
+	
+	if save:
+		# plt.savefig(output_dir + f"cm_{model_name}_{ts}.png", dpi = 300)
+		cm_df_meaning.to_csv(output_dir + f"cm_meaning_{model_name}_{ts}.csv")
+		cm_df.to_csv(output_dir + f"cm_{model_name}_{ts}.csv")
+		cm_df_norm.to_csv(output_dir + f"cm_norm_{model_name}_{ts}.csv")
+
+	return cm_df_meaning, cm_df, cm_df_norm
+
+
+def custom_classification_report(y_true, y_pred, y_pred_proba_1, output_dir,gridsearch=None,
+										best_params=None,feature_vector=None,model_name=None,round_to = 2, ts = None, save_results=False, dv = None):
+	tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+	np.set_printoptions(suppress=True)
+	roc_auc = roc_auc_score(y_true, y_pred)
+	f1 = f1_score(y_true, y_pred)
+
+	# calculate precision and recall for each threshold
+	lr_precision, lr_recall, thresholds = precision_recall_curve(y_true, y_pred_proba_1)
+
+	# TODO: add best threshold
+	fscore = (2 * lr_precision * lr_recall) / (lr_precision + lr_recall)
+	fscore[np.isnan(fscore)] = 0
+	ix = np.argmax(fscore)
+	best_threshold = thresholds[ix].item()
+
+	pr_auc = auc(lr_recall, lr_precision)
+	# AU P-R curve is also approximated by avg. precision
+	# avg_pr = metrics.average_precision_score(y_true,y_pred_proba_1)
+
+	sensitivity = recall_score(y_true, y_pred)
+	specificity = tn / (tn + fp)  # OR: recall_score(y_true,y_pred, pos_label=0)
+	precision = precision_score(y_true, y_pred)
+
+	results = pd.DataFrame(
+		[dv, feature_vector,model_name, sensitivity, specificity, precision, f1, roc_auc, pr_auc, best_threshold, gridsearch, best_params, len(y_true)],
+		index=["Construct","Feature vector","Model", "Sensitivity", "Specificity", "Precision", "F1", "ROC AUC", "PR AUC", "Best th PR AUC", "Gridsearch", "Best parameters", "Support"],
+	).T.round(2)
+	if save_results:
+		results.to_csv(output_dir + f"results_{model_name}_{ts}.csv")
+	return results
+
 
 
 def obtain_json(responses):
-    jsons = []
-    for response in responses:
-        matches = re.findall(r'\{.*?\}', response)
 
-        # Assuming there's at least one match and it's safe to evaluate
-        if matches:
-            # Convert the first match to dictionary
-            dictionary = eval(matches[0])
-            jsons.append(dictionary)
-        else:
-            jsons.append(response)
-    return jsons
+	jsons = []
 
+	added = []
 
+	for i, response in enumerate(responses):
+		try:
+			response_eval = eval(response)
+			if type(response_eval) == dict:
+				jsons.append(response_eval)
+				added.append(i)
+			elif type(response_eval) == set:
+				jsons.append(list(response_eval))
+				added.append(i)
 
+		except:
+			matches = re.findall(r'\{.*?\}', response)
 
-pd.set_option("display.max_columns", None)
+			# Assuming there's at least one match and it's safe to evaluate
+			if matches != []:
+				# Convert the first match to dictionary
+				try: 
+					dictionary = eval(matches[0])
+					jsons.append(dictionary)
+					added.append(i)
+				except:
+					jsons.append(response)
+					added.append(i)
 
-location = 'local'
-
-if location == 'openmind':
-  input_dir = '/nese/mit/group/sig/projects/dlow/ctl/datasets/'
-  output_dir = 'home/dlow/'
-elif location =='local':
-  input_dir = '/Users/danielmlow/data/ctl/input/datasets/'
-  output_dir = '/home/dlow/datum/lexicon/data/output/'
-
-
-set_name = 'train10_test'	
-test = pd.read_parquet(input_dir + f'{set_name}_metadata_messages.gzip', engine='pyarrow')
-
-
-ctl_tags13 = ['self_harm',
- 'suicide',
- 'bully',
- 'abuse_physical',
- 'abuse_sexual',
- 'relationship',
- 'bereavement',
- 'isolated',
- 'anxiety', #anxiety_stress
- 'depressed',
- 'gender', #gender_sexual_identity
- 'eating', # eating_body_image
- 'substance']
-
-# Clean
-# ==============================
-duplicates = test[test.duplicated(subset='message', keep=False)]
-duplicates = duplicates.sort_values(by='message')
-# Display duplicated rows
-remove_duplicates = duplicates['message'].unique() # these are all short messages like test STOP, 
-print(test.shape)
-# remove rows if message is in remove_duplicates
-test = test[~test ['message'].isin(remove_duplicates)]
-
-# Remove if prank_ban? Yes.
-[print('\n', n) for n in test[test['prank_ban']==1]['message_with_interaction'].tolist()]
-test[test['prank_ban']==1][ctl_tags13].sum()
-test[test['prank_ban']==1].shape
-[print('\n', n) for n in test[test['prank']==1]['message_with_interaction'].tolist()]
-test[test['prank']==1][ctl_tags13].sum()
-test[test['prank']==1].shape
-test = test[test['prank']!=1]
-
-# Testing: yes, remove
-[print('\n', n) for n in test[test['testing']==1]['message_with_interaction'].tolist()]
-print(test.shape)
-test[test['testing']==1].shape
-test = test[test['testing']!=1]
-
-print(test.shape)
-
-# About someone else
-[print('\n', n) for n in test[test['3rd_party']==1]['message_with_interaction'].tolist()]
-test[test['3rd_party']==1][ctl_tags13].sum()
-test[test['3rd_party']==1].shape
-
-# TODO: redo ladder: -1, -2, -3 from third party, prank, test
-def get_true_risk_3(row):
-	if (row['3rd_party'] ==1 or row['testing'] == 1 or row['prank'] == 1):
-		return -1
-	elif (row['active_rescue'] > 0 or row['ir_flag'] > 0 or row['timeframe'] > 0):
-		return 3 # high risk
-	elif ('suicidal_desire' in row['suicidality'] or 'suicidal_intent' in row['suicidality'] or 'suicidal_capability' in row['suicidality']  or row['suicide']>0 or row['self_harm']>0): 
-		return 2 # medium risk
-	else:
-		return 1 # normal risk
+			else:
+				jsons.append(response)
+				added.append(i)
 	
-
-
-def get_true_risk_8(row):
-	if (row['3rd_party'] ==1 or row['testing'] == 1 or row['prank'] == 1):
-		return -1
-	elif (row['active_rescue'] > 0):
-		return 8 # active rescue
-	
-	elif (row['ir_flag'] > 0):
-		return 7 # high risk
-	
-	elif (row['timeframe'] > 0):
-		return 6 # high risk
-	
-	elif (row['suicidal_capability'] > 0):
-		return 5 # high risk
-	
-	elif (row['suicidal_intent']>0):
-		return 4
-	elif row['self_harm']>0:
-		return 3
-
-	elif (row['suicidal_desire']>0 or row['suicide']>0):
-		return 2
-	else: 
-		return 1
+		if i not in added:
+			jsons.append(response)
 		
+	not_added = list(set(range(len(responses)))- set(added))
+	if len(not_added)>1:
+		print('WARNING: indexes not added, fix:', not_added)
+	print('/n')
+	return jsons
 
 
-# What about none? It is mainly that they don't respond. So I should rmeove?
-test[test ['none']==1][ctl_tags13+['none']].sum()
-[print('\n', n) for n in test[test ['none']==1]['message_with_interaction'].tolist()[::100]]
-test = test[test ['none']!=1] # Remove Nones
+# # Load model (download if not in cache)
+
+# In[11]:
 
 
-# Remove initial keyword
-from collections import Counter
-counter = Counter([str(n).split('\n')[0].lower() for n in test['message'].values])
-ranked_results = counter.most_common()
-remove_list = [n[0] for n in  ranked_results[:200]]
-test['message'].duplicated().sum()
-keep = ['hello', 'hi', 'hey', 'hello', 'i need help', 'help', 'hello?', 'test', 'i need help', 'hello.', 'hi.', 'help me', 'i need to talk to someone ', 'hola', 'i want to die', 'please help', 'hi i need help', 'i need to talk ', 'i need someone to talk to ' , 'i need help.', 'i need to talk to someone', 'i need to talk', 'is anyone there?', "hi, i'm going through something difficult and want to talk with someone who might be able to help."]
-remove_list = [n for n in remove_list if n not in keep]
-# remove first message unless in keep
-# Process each message
-processed_messages = []
-for message in test['message'].values:
-    message_split = message.split('\n')
-    if message_split[0].lower() in remove_list:
-        message_split.pop(0)  # Remove the first element
-    if message_split[-1].lower() in ['stop']:
-        # remove last element of list
-        message_split.pop(-1)
-    processed_messages.append('\n'.join(message_split))
-test['message_clean'] = processed_messages
+# Erase model from session
+# try: del tokenizer
+# except: pass
+# torch.cuda.empty_cache()
+print('/n')
+run_nvitop()
+print('loading model...')
 
 
 
-# TODO: Remove stop from end of 
-processed_messages = []
-for message in test['message_clean'].values:
-    message_split = message.split('\n')
-    if message_split[0].lower() in remove_list:
-        message_split.pop(0)  # Remove the first element
-    processed_messages.append('\n'.join(message_split))
-test['message_clean'] = processed_messages
-'home' in remove_list
-
-
-# Remove short messages
-
-messages = ['. '.join(n.split('\n')) for n in test['message_clean'].values]
-word_count = [len(n.split(' ')) for n in messages]
-import matplotlib.pyplot as plt
-
-pd.DataFrame([len(n.split(' ')) for n in messages]).value_counts(normalize=True)
-# what percentile of word_count is N?
-n=10
-import numpy as np
-test['word_count'] = word_count
-start = 10
-end = 20
-num = 123
-[print('\n', n) for n in test[(test['word_count'] >start) & (test['word_count'] <end)]['message_with_interaction'].sample(n=20, random_state=num).values]
-[print('\n', n) for n in test[(test['word_count'] >start) & (test['word_count'] <end)]['message_clean'].sample(n=20, random_state=num).values]
-from scipy.stats import percentileofscore
-percentileofscore(word_count,20, kind='mean')
-plt.hist(word_count, bins=100)
-
-
-
-
-
-
-
-
-for dv in ctl_tags13:
-	df_metadata_tag = create_binary_dataset(test, dv = dv, n_per_dv = 250)
-	display(df_metadata_tag[dv].value_counts())
-	display(df_metadata_tag[ctl_tags13].sum())
-	6 * 500 / 60 # minutes it will take to do inference with gemma 7b 
-
-
+# In[12]:
 
 
 # TODO: See how they use it for text classification: (from probs or output layer directly?)
 # https://colab.research.google.com/github/bigscience-workshop/petals/blob/main/examples/prompt-tuning-sst2.ipynb
-from transformers import AutoTokenizer, AutoModelForCausalLM
-max_length = 2000
-model_name = "google/gemma-2b-it"
-# model_name = "google/gemma-7b-it"
-# model_name = "meta-llama/Llama-2-7b-chat-hf"
+
+
 tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+
 
 if 'gemma' in model_name:
 	# Gemma
-	model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
-	model = model.to(device)
+	model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.bfloat16, low_cpu_mem_usage=True).to(device)
+
 elif 'llama' in model_name:
 	# Have to restart session after updating transformers
 	from transformers import AutoTokenizer, LlamaForCausalLM
-	model = LlamaForCausalLM.from_pretrained(model_name)
+	model = LlamaForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
+elif "paulml/OGNO-7B" in model_name:
+	pipeline = transformers.pipeline(
+	"text-generation",
+	model=model_name,
+	torch_dtype=torch.float16,
+	device_map="auto",
+	)
+elif "microsoft/phi-2" in model_name:
+	model = AutoModelForCausalLM.from_pretrained(model_name,  trust_remote_code=True,torch_dtype='auto', low_cpu_mem_usage=True)
+	tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
-# !python3 -m nvitop -1
+
+print('/n')
+print('model loaded')    
+run_nvitop()
 # !nvidia-sim
 
+	
+	
 
 
 # # alternative
@@ -304,71 +454,325 @@ elif 'llama' in model_name:
 #     print(f"Result: {seq['generated_text']}")
 
 
+# In[13]:
 
 
-# documents = ['No one cares about me']
-import time
-documents = ['No one cares about me', "Help me please. Everything hurts. Why is it worse at night? God I hate everything. I can't really take it anymore. I'm so over it. I hate feeling like this, I don't WANT to feel like this. Thank you. My feelings.. Depression. I don't have clinical but lately I've been feeling like shit, especially at night. It really really is. I just want to be that happy optimistic person full of [scrubbed] that spreads confetti all over my friends and families lives. And I usually can be but I want to be like that all the time and I'm just so fucking tired of everything.. Yeah, that makes sense. It sounds about right. Yeah. Loneliness is something I feel a lot. I have amazing friends to vent to, and that I love and they love me, but I'm still really lonely. I guess confusion is a big feeling I feel as well. I'm lonely and confused. Yes. Drowning myself. Or stabbing myself. Yes I do. The Saturday coming up. No one will be home. Then I can call the cops and tell them I'm going to kill my self so my family doesn't have to see my body. Yes i am. About suicide? No. Your welcome.. Yeah. I don't need them to worry about me. Yeah I do. My family and friends are my world. My dad would. And my best friends [scrubbed] and [scrubbed]. That's something I wonder. Am I really their world. I'm kinda a bitch. Or I can be. Like I said, I try to be really upbeat, but I have some unflattering moments. If I'm their world? No. It seems a bit possessive. Well they're always here for me and willing to talk and let me vent, so that means a lot to me. Especially since we all know we can come to each other. I vent to them, they vent to me. Yeah, I think they do too. I'm not sure. Yes I think so. Maybe distractions. Like YouTube or something. Yeah I think so. I also write in my [scrubbed] a lot. That helps. The online chat thing sounds like it would be a good support system. Thank you so much. And yeah, I've reached out here multiple times. I'm feeling stable now.. That sounds good [scrubbed]. Thank you. Thank you so much."]
-constructs = ['loneliness','suicide']
-responses = []
-time_elapsed_all = []
-for document, construct in zip(documents, constructs):
+# get a sense of token length vs word length
+# ========================================================
+run_this =False
 
-	start = time.time()
-	  
+if run_this:
 
-
+	# for dv in ctl_tags13:
+	dv = 'eating'
+	df_i = create_binary_dataset(test, dv = dv, n_per_dv = 300)
+	df_i[ctl_tags13].sum()
 
 
-	prompt = """
-	You are a text classification assistant.
+	documents = df_i['message_with_interaction_clean'].values
+	y_test = df_i[dv].values
+	construct = prompt_names.get(dv)
+	print(construct)
+	print(len(documents))
+	print(len(y_test))
 
-	The text to classify:
-	```
-	{document}
-	```
+	len_tokens = []
+	word_counts = []
 
-	Assign a probability for following labels and return in a JSON format:
+	for text in documents:
+		# Tokenize text
+		tokens = tokenizer.tokenize(text)
 
-	'related to {construct} at any point': <your_probability>, 'not related to {construct}': <your_probability>
+		# Number of tokens
+		len_tokens.append(len(tokens))
+		word_counts.append(len(text.split(' ')))
+		
+	plt.hist(len_tokens, bins = 100, alpha =0.3)
+	plt.hist(word_counts, bins = 100, alpha =0.3, label = 'word counts')
+	plt.legend()
+	print(np.mean(len_tokens), np.mean(word_counts))
 
-	Do not provide additional text or explanations, just that JSON output.
-	"""
+
+# In[14]:
 
 
-	prompt = prompt.format(document = document, construct = construct)
-	print(prompt)
+# batch tokenization was messing up my memory usage even though it doesnt use much memory.
+# ================================================================================================
+# max_length = 1012
+# prompts = [prompt.format(context = 'Crisis Text Line service', document = document, construct = construct) for document, construct in zip(documents, constructs)] 
+# input_ids_all = tokenizer(prompts, padding=True, truncation=True,max_length = max_length, return_tensors="pt").input_ids.to(device)
+
+# start = time.time()
+
+# outputs = model.generate(input_ids_all, max_length=max_length)
+# # Decode generated sequences
+# prompt_length = input_ids_all.shape[1]
+# # # Decode only the generated part, skipping the prompt
+# generated_texts = [tokenizer.decode(output_sequence[prompt_length:], skip_special_tokens=True) for output_sequence in outputs]
+# end = time.time()
+# time_elapsed = end - start
+# print(time_elapsed)
 
 
-	if 'gemma' in model_name:
-		# Gemma
-		input_ids = tokenizer(prompt, return_tensors="pt").to(device)
-		outputs = model.generate(**input_ids, max_length = max_length)
-		tokenizer.decode(outputs[0])
-		# Find the length of the input_ids to know where the original prompt ends
-		prompt_length = input_ids["input_ids"].shape[1]
-		# Decode only the generated part, skipping the prompt
-		response = tokenizer.decode(outputs[0][prompt_length:], skip_special_tokens=True)
-		responses.append(response)
-	elif 'llama' in model_name:
-		inputs = tokenizer(prompt, return_tensors="pt")
+# In[15]:
 
-		# Generate
-		generate_ids = model.generate(inputs.input_ids, max_length=max_length)
-		response = tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-		responses.append(response)
+
+model_name
+
+
+# In[57]:
+
+construct_position = 0
+
+prompts ={ 
+	'google/gemma-2b-it': 
+"""
+You are a conversation classification assistant. Classify the following {context} conversation:
+
+Here is the {context} conversation (ends with ```):
+```
+{document}
+```
+
+Assign probabilities for the following labels and return using this JSON format (do not provide additional notes, explanations, or warnings). Provide your best guess, only return JSON (both probabilities should sum to 1):
+
+JSON:
+{{'texter mentions something related to {construct}': <your_probability>, 'texter does not mention anything related to {construct}': <your_probability>}}
+
+
+JSON:
+""",
 	
-	end = time.time()
-	time_elapsed = end - start
-	time_elapsed_all.append(time_elapsed)
+	
+	'google/gemma-7b-it': 
+"""
+You will classify a {context} conversation as to whether it contains any content related to {construct}.
 
-print(responses)
+Here is the conversation (begins and ends with ```):
+```
+{document}
+```
+
+Assign probabilities only for following two labels and return using this JSON format (do not provide additional notes, explanations, or warnings). Only return JSON:
+
+JSON:
+{{'contains any content related to {construct}': <your_probability>, 'does not contain any content related to {construct}': <your_probability>}}
+
+JSON:
+"""
+	
+	
+#         'google/gemma-7b-it': 
+# """
+# You will classify a {context} conversation as to whether the texter is concerned about something related to {construct}.
+
+# Here is the conversation (begins and ends with ```):
+# ```
+# {document}
+# ```
+
+# Assign probabilities only for following two labels and return using this JSON format (do not provide additional notes, explanations, or warnings). Only return JSON:
+
+# JSON:
+# {{'texter is concerned about something related to {construct}': <your_probability>, 'texter is not concerned about something related to {construct}': <your_probability>}}
+
+# JSON:
+# """
+	
+	
+	
+}
+
+prompt = prompts.get(model_name)
+print('/n')
+print('prompt:\n', prompt, '\n')
+print('/n')
+
+
+# In[59]:
+
+
+ctl_tags13
+
+
+# In[ ]:
+
+
+# if toy:
+# 	n_per_dv = 75
+# else:
+n_per_dv = 300
+
+
+if with_interaction:
+	max_length = int(1750*1.4)+75 #word count * 1.4 +75 for the prompt ~ tokens, 98%have less than this
+else:
+	# just texter     
+	max_length = int(1000*1.4)+75
+	
+# documents = ['No one cares about me']
+
+
+# Accessing tokenized ids
+for dv in ctl_tags13:
+	output_dir_i_dv = output_dir_i+f'{dv}/'
+	os.makedirs(output_dir_i_dv, exist_ok = True)
+		
+
+	responses = []
+	time_elapsed_all = []
+	add_file_handler(output_dir_i_dv+f'log_print_statements_{dv}.txt')
+#     print = custom_print
+	
+	construct = prompt_names.get(dv)
+	# Configure logging
+
+	df_i = create_binary_dataset(test, dv = dv, n_per_dv = n_per_dv)
+	
+	if with_interaction:
+		documents = df_i['message_with_interaction_clean'].values
+	else:
+		documents = df_i['message_clean'].values
+	y_test = df_i[dv].values
+	print('\n', dv, '============================================')
+	print(df_i[ctl_tags13].sum())
+	print('construct:', construct)
+	print('len of documents:',len(documents))
+	print('len of y_test:',len(y_test))
+
+	for document, y_test_i in tqdm(zip(documents, y_test)):
+
+		start = time.time()
+
+		prompt_i = prompt.format(context = 'Crisis Text Line service', document = document, construct = construct)
+		# print(prompt_i)
+
+
+		if 'gemma' in model_name:
+			# Gemma
+			input_ids = tokenizer(prompt_i,truncation=True,max_length=max_length, return_tensors="pt").to(device)
+			outputs = model.generate(**input_ids, max_new_tokens = 1000)
+			tokenizer.decode(outputs[0])
+			# Find the length of the input_ids to know where the original prompt ends
+			prompt_length = input_ids["input_ids"].shape[1]
+			# Decode only the generated part, skipping the prompt
+			response = tokenizer.decode(outputs[0][prompt_length:], skip_special_tokens=True)
+
+		elif 'llama' in model_name:
+			inputs = tokenizer(prompt_i, return_tensors="pt")
+
+			# Generate
+			generate_ids = model.generate(inputs.input_ids, max_length=max_length)
+			response = tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+
+	#     elif "paulml/OGNO-7B" in model_name:
+	#         messages = [{"role": "user", "content": prompt}]
+	#         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+	#         outputs = pipeline(prompt, max_new_tokens=256, do_sample=True, temperature=0.7, top_k=50, top_p=0.95)
+	#         response = outputs[0]["generated_text"] 
+	#     elif 'microsoft/phi-2' in model_name:     
+	#         inputs = tokenizer(prompt, return_tensors="pt", return_attention_mask=False)
+
+	#         outputs = model.generate(**inputs, max_length=200)
+	#         response = tokenizer.batch_decode(outputs)[0]
+
+
+
+
+		responses.append(response)
+
+		print('y_test_i', y_test_i, '=======')
+		print(response)
+
+
+		end = time.time()
+		time_elapsed = end - start
+		# print(time_elapsed)
+		time_elapsed_all.append(time_elapsed)
+
+	# clean
+	jsons = obtain_json(responses)
+
+
+	# TODO: you need to randomly assign 0.2 or 0.8 if you can't parse a response
+	could_not_parse = []
+	json_responses_clean = []
+	for i, response in enumerate(jsons):
+		if type(response) == dict:
+			response_values = response.values()
+			json_responses_clean.append(list(response_values))
+			could_not_parse.append(0)
+		elif type(response) == list:
+			json_responses_clean.append(response)
+			could_not_parse.append(0)
+			
+
+		else:
+			random_float_0 = random.uniform(0.51, 0.99)
+			random_float_1 = 1 - random_float_0
+			selected_list = random.choice([
+				[random_float_0,random_float_1],
+				[random_float_1,random_float_0],
+				])
+			print('\n\n=======', i, 'could not parse, randomly assiging a value:', response)
+			json_responses_clean.append(selected_list)
+			could_not_parse.append(1)
+
+
+	if construct_position == 0: 
+		labels_order = [f"{dv}", f"Other"]
+	else:
+		labels_order = [f"Other",f"{dv}"]
+	y_pred_df = pd.DataFrame(json_responses_clean, columns = labels_order)
+	y_pred_df['could_not_parse'] = could_not_parse
+	y_pred_df['jsons'] = jsons
+	y_pred_df['time_elapsed'] = time_elapsed_all
+
+	y_pred_proba_1 = [n[construct_position] for n in json_responses_clean] # 1 value is construct
+	y_pred_proba_1
+	y_pred = np.array([n>=0.5 for n in y_pred_proba_1])*1  # 1 if construct >=0.5 independent of order in json_responses_clean
+
+	y_pred_df['y_pred'] = y_pred
+	y_pred_df['y_test'] = y_test
+	
+	y_pred_df.to_csv(output_dir_i_dv+f'y_proba_{dv}.csv')
+
+	# here we don't change label orders because y_pred and y_test are well defined (1 if construct >=0.5)     
+	dv_clean = dv.replace('_', ' ').capitalize()
+	cm_df_meaning, cm_df, cm_df_norm = cm(y_test, y_pred, output_dir_i_dv, model_name_clean, ts, classes = [f"Other",f"{dv_clean}"], save=True)
+	cr = classification_report(y_test, y_pred,output_dict=True)
+	cr = pd.DataFrame(cr)
+
+	cr.to_csv(output_dir_i_dv+f'cr_{dv}_{ts}.csv')
+
+	results = custom_classification_report(y_test, y_pred, y_pred_proba_1, output_dir_i_dv,gridsearch=None,
+		best_params=None,feature_vector=None,model_name=model_name_clean,round_to = 2, ts =ts, save_results=True, dv = dv_clean)
 
 
 
 
 
 
+
+# In[ ]:
+
+
+cr
+
+
+# In[ ]:
+
+
+results
+
+
+# In[ ]:
+
+
+cm
+
+
+# In[ ]:
 
 
 

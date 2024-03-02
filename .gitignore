@@ -162,3 +162,4 @@ data/input
 .DS_Store
 api_keys
 api_keys.py
+data
