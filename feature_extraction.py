@@ -204,6 +204,7 @@ import dill
 def load_lexicon(path):
 	lexicon = dill.load(open(path, "rb"))
 	return lexicon
+srl_prototypical = load_lexicon("./../lexicon/data/input/lexicons/suicide_risk_lexicon_validated_prototypical_tokens_24-03-06T00-47-30.pickle")
 srl = load_lexicon("./../lexicon/data/input/lexicons/suicide_risk_lexicon_validated_24-03-06T00-37-15.pickle")
 
 ctl_tags13_to_srl_name_mapping = {'self_harm': ['Direct self-injury'],
@@ -223,24 +224,30 @@ ctl_tags13_to_srl_name_mapping = {'self_harm': ['Direct self-injury'],
  'substance': ['Other substance use', 'Alcohol use']}
 
 
-X_test_content_validity = []
-for dv in ctl_tags13:
-	constructs = ctl_tags13_to_srl_name_mapping.get(dv)
-	# get tokens from srl	
-	tokens_all = []
-	for construct in constructs: 
-		
-		tokens_all.extend(srl.constructs[construct]['tokens'])
+for name, lexicon_i in zip(['prototypicality-1_3','prototypicality-3'],[srl, srl_prototypical]):
+	X_test_content_validity = []
+	for dv in ctl_tags13:
+		constructs = ctl_tags13_to_srl_name_mapping.get(dv)
+		# get tokens from srl	
+		tokens_all = []
+		for construct in constructs: 
+			
+			tokens_all.extend(lexicon_i.constructs[construct]['tokens'])
 
-	X_test_content_validity_i = pd.DataFrame({
-		'token':tokens_all,
-		'y_test':[dv]*len(tokens_all),
-		'constructs':['--'.join(constructs)]*len(tokens_all)
-	})
-	X_test_content_validity.append(X_test_content_validity_i)
+		X_test_content_validity_i = pd.DataFrame({
+			'token':tokens_all,
+			'y_test':[dv]*len(tokens_all),
+			'constructs':['--'.join(constructs)]*len(tokens_all)
+		})
+		X_test_content_validity.append(X_test_content_validity_i)
 
-X_test_content_validity = pd.concat(X_test_content_validity)
+	X_test_content_validity = pd.concat(X_test_content_validity)
+	dfs[f'X_test_content_validity_{name}'] = {}
+	dfs[f'X_test_content_validity_{name}']['df_text'] = X_test_content_validity.copy()
+	print(X_test_content_validity.copy())
 
+
+	X_test_content_validity.to_csv(f'./data/input/ctl/X_test_content_validity_{name}.csv', index = False)
 
 
 
@@ -274,8 +281,6 @@ X_test_content_validity = pd.concat(X_test_content_validity)
 
 # In[283]:
 
-
-dv_distr
 
 
 # In[284]:
@@ -533,13 +538,21 @@ liwc_test = pd.read_csv(liwc_dir+f'X_test_all_with_interaction_liwc22.csv')
 
 split = 'train'
 for split, df_i in zip(['train', 'test'], [liwc_train, liwc_test]):
-	
-
-	df_text = dfs[split]['df_text'].copy()
-	df_i = df_i[df_i['conversation_id'].isin(df_text['conversation_id'].unique())]
-	dfs[split]['liwc22'] = df_i.drop(['Segment', 'conversation_id', 'y', 'text', 'Emoji'], axis=1)
-	dfs[split]['liwc22'] = df_i['y'].values
+	dfs[split]['liwc22'] = df_i.copy()
                                    
+
+# Content validity test sets
+# =================================================================================
+liwc_content_validity_13 = pd.read_csv(liwc_dir+f'X_test_content_validity_prototypicality-1_3_liwc22.csv')
+liwc_content_validity_3 = pd.read_csv(liwc_dir+f'X_test_content_validity_prototypicality-3_liwc22.csv')
+
+
+
+
+for split, df_i in zip(['X_test_content_validity_prototypicality-1_3', 'X_test_content_validity_prototypicality-3'], [liwc_content_validity_13, liwc_content_validity_3]):
+	print(df_i.shape)
+	dfs[split]['liwc22'] = df_i.copy()
+
 
 
 # # Extract Suicide Risk Lexicon
@@ -600,11 +613,37 @@ for split in tqdm.tqdm(['train', 'test']):
 	df_text[feature_vectors.columns] = feature_vectors.values
 	dfs[split]['srl_validated'] = df_text.copy()
 	
-
-
-
 dfs['train']['srl_validated'].to_csv('./data/input/ctl/X_train_all_with_interaction_srl_validated.csv', index = False)
 dfs['test']['srl_validated'].to_csv('./data/input/ctl/X_test_all_with_interaction_srl_validated.csv', index = False)
+
+
+# Content validity test sets
+
+# ====================================================================================================================
+for split in ['X_test_content_validity_prototypicality-1_3', 'X_test_content_validity_prototypicality-3']:
+# for split in ['X_test_content_validity_prototypicality-3']:
+	df_i = dfs[split]['df_text'].copy()
+	print(df_i.shape)
+	docs = df_i['token'].tolist()
+	
+	for construct in srl.constructs.keys():
+		srl.constructs[construct]['remove'] = []
+
+	srl = lemmatize_tokens(srl) 
+
+	# Extract
+	feature_vectors, matches_counter_d, matches_per_doc, matches_per_construct  = lexicon.extract(docs,
+																						srl.constructs,normalize = True, return_matches=True,
+																						add_lemmatized_lexicon=True, lemmatize_docs=False,
+																						exact_match_n = srl.exact_match_n,exact_match_tokens = srl.exact_match_tokens)
+	
+
+	
+
+	df_i[feature_vectors.columns] = feature_vectors.values
+	
+	dfs[split]['srl_validated'] = df_i.copy()
+
 
 
 # # # Suicide Risk Lexicon (only GPT-4 Turbo tokens) 
@@ -682,6 +721,7 @@ dfs['test']['srl_validated'].to_csv('./data/input/ctl/X_test_all_with_interactio
 
 
 td_columns = ['token_length_mean',
+			  
 #  'token_length_median',
  'token_length_std',
  'sentence_length_mean',

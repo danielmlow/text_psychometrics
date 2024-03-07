@@ -52,15 +52,7 @@ test = pd.read_parquet(input_dir + f'train10_test_metadata_messages_clean.gzip',
 
 
 
-import pickle
-run_this = False #True saves, False loads
-if run_this:
-    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
-        pickle.dump(dfs, f) 
-else:
 
-    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
-    	dfs = pickle.load(f)
 
 
 
@@ -70,7 +62,15 @@ task = 'classification'
 normalize_lexicon = True
 with_interaction = True
 
+import pickle
+run_this = False #True saves, False loads
+if run_this:
+    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
+        pickle.dump(dfs, f) 
+else:
 
+    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
+    	dfs = pickle.load(f)
 
 
 ctl_tags13 = ['self_harm',
@@ -619,6 +619,63 @@ vectorizer = TfidfVectorizer(
 # 	return X_train, y_train,X_test, y_test
 
 
+def custom_classification_report(y_true, y_pred, y_pred_proba_1, output_dir,gridsearch=None,
+										best_params=None,feature_vector=None,model_name=None,round_to = 2, ts = None, save_csv=False ):
+	
+	if len(np.unique(y_true)) == 1:
+		sensitivity = metrics.recall_score(y_true, y_pred)
+		# Calculate TP and FN
+		TP = sum((y_pred == 1) & (y_true == 1))
+		FN = sum((y_pred == 0) & (y_true == 1))
+
+		# Now you can calculate the False Negative Rate (FNR)
+		fnr = FN / (FN + TP) if (FN + TP) > 0 else 0
+
+		results = pd.DataFrame(
+			[feature_vector,model_name, sensitivity, np.nan, np.nan,fnr,  np.nan, np.nan, np.nan, np.nan, gridsearch, best_params],
+			index=["Feature vector","Model", "Sensitivity", "Specificity", "Precision", "FNR", "F1", "ROC AUC", "PR AUC", "Best th PR AUC", "Gridsearch", "Best parameters"],
+		).T.round(2)			
+
+
+	
+	else:
+		tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+		fnr = fn / (fn + tp)
+		np.set_printoptions(suppress=True)
+		roc_auc = roc_auc_score(y_true, y_pred)
+		f1 = f1_score(y_true, y_pred)
+
+		# calculate precision and recall for each threshold
+		lr_precision, lr_recall, thresholds = precision_recall_curve(y_true, y_pred_proba_1)
+
+		# fscore = (2 * lr_precision * lr_recall) / (lr_precision + lr_recall)
+		# fscore[np.isnan(fscore)] = 0
+		# ix = np.argmax(fscore)
+		# best_threshold = thresholds[ix].item()
+		best_threshold = np.nan
+
+		pr_auc = auc(lr_recall, lr_precision)
+		# AU P-R curve is also approximated by avg. precision
+		# avg_pr = metrics.average_precision_score(y_true,y_pred_proba_1)
+
+		sensitivity = metrics.recall_score(y_true, y_pred)
+		specificity = tn / (tn + fp) # metrics.recall_score(y_true,y_pred, pos_label=0)   # 
+		precision = metrics.precision_score(y_true, y_pred)
+
+		results = pd.DataFrame(
+			[feature_vector,model_name, sensitivity, specificity, precision,fnr,  f1, roc_auc, pr_auc, best_threshold, gridsearch, best_params],
+			index=["Feature vector","Model", "Sensitivity", "Specificity", "Precision","FNR", "F1", "ROC AUC", "PR AUC", "Best th PR AUC", "Gridsearch", "Best parameters"],
+		).T.round(2)
+
+	
+
+	if save_csv:
+		results.to_csv(output_dir + f"results_{model_name}_{ts}.csv")
+	return results
+
+
+
+
 # In[385]:
 
 
@@ -647,15 +704,26 @@ def get_combinations(parameters):
 
 
 
+run_this = False #True saves, False loads
+if run_this:
+    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
+        pickle.dump(dfs, f) 
+else:
+
+    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
+    	dfs = pickle.load(f)
 
 
 
-toy = False
 
 # config
 # ========================================================================================
-feature_vectors = ['srl_validated']#, 'liwc22']#['all-MiniLM-L6-v2', 'srl_unvalidated','SRL GPT-4 Turbo', 'liwc22', 'liwc22_semantic'] # srl_unvalidated_text_descriptives','text_descriptives' ]
-sample_sizes = [150] 
+toy = False
+
+
+
+feature_vectors = ['liwc22', 'srl_validated'] #, 'liwc22_semantic']#, ]#['all-MiniLM-L6-v2', 'srl_unvalidated','SRL GPT-4 Turbo', 'liwc22', 'liwc22_semantic'] # srl_unvalidated_text_descriptives','text_descriptives' ]
+sample_sizes = [50, 150, 2000] 
 
 task = 'classification'
 if task == 'classification':
@@ -678,23 +746,25 @@ os.makedirs(output_dir , exist_ok=True)
 
 output_dir_i = output_dir+'ml_performance/'
 os.makedirs(output_dir_i,exist_ok=True)
-constructs_in_order = list(srl.constructs.keys())
+
 
 # 64,51,54 vs .4, .25, 56 (with much more training data)
-
-
-
-
-
 
 
 np.random.seed(123)
 
 # TODO: see where to save feature_vector (tfidf, liwc22) and where to save model_name (Ridge, LightGBM)
-
+import dill
+def load_lexicon(path):
+	lexicon = dill.load(open(path, "rb"))
+	return lexicon
+srl = load_lexicon("./../lexicon/data/input/lexicons/suicide_risk_lexicon_validated_24-03-06T00-37-15.pickle")
 constructs_in_order = list(srl.constructs.keys())
 
 ts_i = datetime.datetime.utcnow().strftime('%y-%m-%dT%H-%M-%S')
+
+
+
 
 if toy:
 	sample_sizes = [50]
@@ -702,10 +772,14 @@ if toy:
 
 for n in sample_sizes:
 	results = []
+	results_content_validity = []
 	# for gridsearch in [True]:
 
 	# for feature_vector in ['srl_unvalidated', 'all-MiniLM-L6-v2']:#['srl_unvalidated']:#, 'srl_unvalidated']:
 	for feature_vector in feature_vectors:#['srl_unvalidated']:#, 'srl_unvalidated']:
+		X_test_3 = dfs['X_test_content_validity_prototypicality-3'][feature_vector]
+		X_test_13 = dfs['X_test_content_validity_prototypicality-1_3'][feature_vector]
+		
 
 		if toy:
 			output_dir_i = output_dir + f'results_{ts_i}_toy/'
@@ -718,6 +792,7 @@ for n in sample_sizes:
 			
 			
 			responses = []
+			
 			time_elapsed_all = []
 		
 			train_i = create_binary_dataset(train, dv = dv, n_per_dv = n)
@@ -736,15 +811,20 @@ for n in sample_sizes:
 			convo_ids_train = train_i['conversation_id'].values
 			convo_ids_test = test_i['conversation_id'].values
 
+			if 'srl' in feature_vector:
+				feature_names = constructs_in_order+['word_count']
+			elif feature_vector == 'liwc22':
+				feature_names = liwc_nonsemantic+liwc_semantic
+			elif feature_vector == 'liwc22_semantic':
+				feature_names = liwc_semantic
 		
 			X_train_df_features = dfs['train'][feature_vector].copy()
 			X_train_df_features =  X_train_df_features[X_train_df_features['conversation_id'].isin(convo_ids_train)]
 			X_train_df_features = X_train_df_features.drop(dv,axis=1)
 			train_i_y_X = pd.merge(train_i_y, X_train_df_features, on='conversation_id')
-			X_train = train_i_y_X[constructs_in_order+['word_count']]
 			y_train =  train_i_y_X[dv].values
+			X_train = train_i_y_X[feature_names]
 			
-
 			print(y_train.shape, X_train.shape)
 
 
@@ -752,8 +832,19 @@ for n in sample_sizes:
 			X_test_df_features =  X_test_df_features[X_test_df_features['conversation_id'].isin(convo_ids_test)]
 			X_test_df_features = X_test_df_features.drop(dv,axis=1)
 			test_i_y_X = pd.merge(test_i_y, X_test_df_features, on='conversation_id')
-			X_test = test_i_y_X[constructs_in_order+['word_count']]
 			y_test =  test_i_y_X[dv].values
+			X_test = test_i_y_X[feature_names]
+			
+			# content validity test sets
+			X_test_13_dv = X_test_13[X_test_13['y_test']==dv][feature_names]
+			y_test_13_dv = [1]*len(X_test_13_dv)
+
+			X_test_3_dv = X_test_3[X_test_3['y_test']==dv][feature_names]
+			y_test_3_dv = [1]*len(X_test_3_dv)
+
+
+
+			# TODO: compute metrics for it considering only false positives. 
 			
 			# if feature_vector == 'liwc22_semantic':
 			# 	X_train, y_train, X_test, y_test = get_splits('liwc22')
@@ -833,51 +924,95 @@ for n in sample_sizes:
 						if 'y' in X_test.columns:
 							warnings.warn('y var is in X_test, removing')
 							X_test = X_test.drop('y', axis=1)
-					y_pred = best_model.predict(X_test)
+					# y_pred = best_model.predict(X_test)
+					
+					# Content validity
+					
+
+
+
+
 				else:
 					pipeline.fit(X_train,y_train)
 					best_params = 'No hyperparameter tuning'
-					y_pred = pipeline.predict(X_test)
+					# y_pred = pipeline.predict(X_test)
 				
-				# Predictions
-				y_pred_df = pd.DataFrame(y_pred)
-				y_pred_df.to_csv(output_dir_i+f'y_pred_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index=False)
-				path = output_dir_i + f'{feature_vector}_{model_name}_{n}_{ts_i}_{dv}'
+				
 			
 				# Performance
 				dv_clean = dv.replace(' ','_').capitalize()
 				if task == 'classification':
-					cm_df_meaning, cm_df, cm_df_norm = cm(y_test,y_pred, output_dir_i, f'{model_name}_{dv}', ts_i, classes = ['Other', f'{dv_clean}'], save=True)
-					y_proba = pipeline.predict_proba(X_test)       # Get predicted probabilities
+					
+					
+					if gridsearch:
+						y_proba = best_model.predict_proba(X_test)       # Get predicted probabilities
+						y_pred_content_validity_13 = best_model.predict(X_test_13_dv)
+						y_pred_content_validity_3 = best_model.predict(X_test_3_dv)
+					else:
+
+						y_proba = pipeline.predict_proba(X_test)       # Get predicted probabilities
+						y_pred_content_validity_13 = pipeline.predict(X_test_13_dv)
+						y_pred_content_validity_3 = pipeline.predict(X_test_3_dv)
 					y_proba_1 = y_proba[:,1]
 					y_pred = y_proba_1>=0.5*1                   # define your threshold
+					# Predictions
+					y_pred_df = pd.DataFrame(y_pred)
+					
+					y_pred_df.to_csv(output_dir_i+f'y_pred_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index=False)
+					pd.DataFrame(y_pred_content_validity_13).to_csv(output_dir_i+f'y_pred_content_validity_13_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index=False)
+					pd.DataFrame(y_pred_content_validity_3).to_csv(output_dir_i+f'y_pred_content_validity_3_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index=False)
+
+					
+					path = output_dir_i + f'{feature_vector}_{model_name}_{n}_{ts_i}_{dv}'
+					cm_df_meaning, cm_df, cm_df_norm = cm(y_test,y_pred, output_dir_i, f'{model_name}_{dv}', ts_i, classes = ['Other', f'{dv_clean}'], save=True)
 					results_i = custom_classification_report(y_test, y_pred, y_proba_1, output_dir_i,gridsearch=gridsearch,
 											best_params=best_params,feature_vector=feature_vector,model_name=f'{model_name}_{dv}',round_to = 2, ts = ts_i)
+					
+					
+					
+
+					results_i_content_13 = custom_classification_report(y_test_13_dv, y_pred_content_validity_13, y_pred_content_validity_13, output_dir_i,gridsearch=gridsearch,
+											best_params=best_params,feature_vector=feature_vector,model_name=f'{model_name}_{dv}_content-validity-13',round_to = 2, ts = ts_i)
+					results_i_content_3 = custom_classification_report(y_test_3_dv, y_pred_content_validity_3, y_pred_content_validity_3, output_dir_i,gridsearch=gridsearch,
+											best_params=best_params,feature_vector=feature_vector,model_name=f'{feature_vector}_{model_name}_{dv}_content-validity-3',round_to = 2, ts = ts_i)
 				elif task == 'regression':
+					if gridsearch:
+						y_pred = best_model.predict(X_test)
+					else:
+						y_pred = pipeline.predict(X_test)
 
 					results_i =regression_report(y_test,y_pred,y_train=y_train,
 											metrics_to_report = metrics_to_report,
 												gridsearch=gridsearch,
 											best_params=best_params,feature_vector=feature_vector,model_name=model_name, plot = True, save_fig_path = path,n = n, round_to = 2)
-				results_i.to_csv(output_dir_i + f'results_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv')
+				# results_i.to_csv(output_dir_i + f'results_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv')
 				display(results_i)
 				results.append(results_i)
+				results_content_validity.append(results_i_content_13)
+				results_content_validity.append(results_i_content_3)
+				# Feature importance
+				if feature_vector == 'tfidf':
+					if model_name in ['XGBRegressor']:
+						warnings.warn('Need to add code to parse XGBoost feature importance dict')
+					else:
+						feature_importances = tfidf_feature_importances(pipeline, top_k = 50, savefig_path = output_dir_i + f'feature_importance_{feature_vector}_{model_name}_{n}_{ts_i}_{dv}')
+				else:
+					feature_names = X_train.columns
+					# TODO add correlation with DV to know direction
+					feature_importance = generate_feature_importance_df(pipeline, model_name,feature_names,  xgboost_method='weight', model_name_in_pipeline = 'model')
+					if str(feature_importance) != 'None':       # I only implemented a few methods for a few models
+						feature_importance.to_csv(output_dir_i + f'feature_importance_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index = False)        
+						# display(feature_importance.iloc[:50])
+				
 	results_df = pd.concat(results)
 	results_df = results_df.reset_index(drop=True)
 	results_df.to_csv(output_dir_i + f'results_{n}_{ts_i}.csv', index=False)
 
-	# Feature importance
-	if feature_vector == 'tfidf':
-		if model_name in ['XGBRegressor']:
-			warnings.warn('Need to add code to parse XGBoost feature importance dict')
-		else:
-			feature_importances = tfidf_feature_importances(pipeline, top_k = 50, savefig_path = output_dir_i + f'feature_importance_{feature_vector}_{model_name}_{n}_{ts_i}')
-	else:
-		feature_names = X_train.columns
-		feature_importance = generate_feature_importance_df(pipeline, model_name,feature_names,  xgboost_method='weight', model_name_in_pipeline = 'model')
-		if str(feature_importance) != 'None':       # I only implemented a few methods for a few models
-			feature_importance.to_csv(output_dir_i + f'feature_importance_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}.csv', index = False)        
-			# display(feature_importance.iloc[:50])
+	results_df_content_validity = pd.concat(results_content_validity)
+	results_df_content_validity = results_df_content_validity.reset_index(drop=True)
+	results_df_content_validity.to_csv(output_dir_i + f'results_content_validity_{n}_{ts_i}.csv', index=False)
+
+
 	
 
 	# NaN analysis
