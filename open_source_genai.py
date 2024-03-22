@@ -304,7 +304,7 @@ def custom_classification_report(y_true, y_pred, y_pred_proba_1, output_dir,grid
 										best_params=None,feature_vector=None,model_name=None,round_to = 2, ts = None, save_results=False, dv = None):
 	tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
 	np.set_printoptions(suppress=True)
-	roc_auc = roc_auc_score(y_true, y_pred)
+	roc_auc = roc_auc_score(y_true, y_pred_proba_1)
 	f1 = f1_score(y_true, y_pred)
 
 	# calculate precision and recall for each threshold

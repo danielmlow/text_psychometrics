@@ -50,6 +50,8 @@ os.makedirs(output_dir, exist_ok=True)
 train = pd.read_parquet(input_dir + f'train10_train_metadata_messages_clean.gzip', engine='pyarrow')
 test = pd.read_parquet(input_dir + f'train10_test_metadata_messages_clean.gzip', engine='pyarrow')
 
+train.shape[0]+test.shape[0]
+
 
 
 
@@ -71,6 +73,10 @@ else:
 
     with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
     	dfs = pickle.load(f)
+
+
+
+
 
 
 ctl_tags13 = ['self_harm',
@@ -316,6 +322,7 @@ from sklearn.preprocessing import LabelEncoder
 from skopt import BayesSearchCV # had to replace np.int for in in transformers.py
 from importlib import reload
 reload(metrics_report)
+
 from concept_tracker.utils.metrics_report import cm, custom_classification_report, regression_report, generate_feature_importance_df
 from sklearn import metrics
 # from imblearn.pipeline import Pipeline as imb_Pipeline
@@ -636,8 +643,6 @@ def custom_classification_report(y_true, y_pred, y_pred_proba_1, output_dir,grid
 			index=["Feature vector","Model", "Sensitivity", "Specificity", "Precision", "FNR", "F1", "ROC AUC", "PR AUC", "Best th PR AUC", "Gridsearch", "Best parameters"],
 		).T.round(2)			
 
-
-	
 	else:
 		tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
 		fnr = fn / (fn + tp)
@@ -722,8 +727,12 @@ toy = False
 
 
 
-feature_vectors = ['liwc22', 'srl_validated'] #, 'liwc22_semantic']#, ]#['all-MiniLM-L6-v2', 'srl_unvalidated','SRL GPT-4 Turbo', 'liwc22', 'liwc22_semantic'] # srl_unvalidated_text_descriptives','text_descriptives' ]
-sample_sizes = [50, 150, 2000] 
+feature_vectors = ['cts_token_clause', 
+				   #'liwc22', 
+				#    'srl_validated'
+				   
+				   ] #, 'liwc22_semantic']#, ]#['all-MiniLM-L6-v2', 'srl_unvalidated','SRL GPT-4 Turbo', 'liwc22', 'liwc22_semantic'] # srl_unvalidated_text_descriptives','text_descriptives' ]
+sample_sizes = [50, 150] 
 
 task = 'classification'
 if task == 'classification':
@@ -791,24 +800,19 @@ for n in sample_sizes:
 		for dv in ctl_tags13:
 			
 			
+			
 			responses = []
 			
 			time_elapsed_all = []
 		
-			train_i = create_binary_dataset(train, dv = dv, n_per_dv = n)
+			if 'cts' not in feature_vector:
+				train_i = create_binary_dataset(train, dv = dv, n_per_dv = n)
+				train_i_y = train_i[['conversation_id', dv]]
+				convo_ids_train = train_i['conversation_id'].values
+
 			test_i = create_binary_dataset(test, dv = dv, n_per_dv = 300)
-
-			
 			y_test =  test_i[dv].values
-
-			train_i_y = train_i[['conversation_id', dv]]
-
 			test_i_y = test_i[['conversation_id', dv]]
-			
-			# print(len(train_i), len(test_i))
-			# print(np.sum(y_train), np.sum(y_test))
-			
-			convo_ids_train = train_i['conversation_id'].values
 			convo_ids_test = test_i['conversation_id'].values
 
 			if 'srl' in feature_vector:
@@ -818,6 +822,7 @@ for n in sample_sizes:
 			elif feature_vector == 'liwc22_semantic':
 				feature_names = liwc_semantic
 		
+			
 			X_train_df_features = dfs['train'][feature_vector].copy()
 			X_train_df_features =  X_train_df_features[X_train_df_features['conversation_id'].isin(convo_ids_train)]
 			X_train_df_features = X_train_df_features.drop(dv,axis=1)
@@ -927,10 +932,7 @@ for n in sample_sizes:
 					# y_pred = best_model.predict(X_test)
 					
 					# Content validity
-					
-
-
-
+				
 
 				else:
 					pipeline.fit(X_train,y_train)
@@ -967,8 +969,6 @@ for n in sample_sizes:
 					cm_df_meaning, cm_df, cm_df_norm = cm(y_test,y_pred, output_dir_i, f'{model_name}_{dv}', ts_i, classes = ['Other', f'{dv_clean}'], save=True)
 					results_i = custom_classification_report(y_test, y_pred, y_proba_1, output_dir_i,gridsearch=gridsearch,
 											best_params=best_params,feature_vector=feature_vector,model_name=f'{model_name}_{dv}',round_to = 2, ts = ts_i)
-					
-					
 					
 
 					results_i_content_13 = custom_classification_report(y_test_13_dv, y_pred_content_validity_13, y_pred_content_validity_13, output_dir_i,gridsearch=gridsearch,

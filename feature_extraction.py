@@ -844,6 +844,7 @@ sns.clustermap(td_features_corr)
 
 
 # # Extract embeddings
+# =========================
 # 
 # - 4000 docs - 8m
 # 
@@ -864,8 +865,19 @@ len(dfs[split]['X']) == dfs[split]['df_text'].shape[0]
 
 # In[349]:
 
+# ===================
 
-run_this = True
+import pickle
+run_this = False#True saves, False loads
+if run_this:
+    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
+        pickle.dump(dfs, f) 
+else:
+
+    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
+    	dfs = pickle.load(f)
+
+	
 # 25m for train set.
 if run_this:
 	import tensorboard
@@ -879,6 +891,8 @@ if run_this:
 	# all-MiniLM-L6-v2 is optimized for semantic similarity of paraphrases
 	sentence_embedding_model = SentenceTransformer(embeddings_name)       # load embedding
 	
+# FLAN-T5-Large
+
 	sentence_embedding_model._first_module().max_seq_length = 500
 	# TODO: Change max_seq_length to 500
 	# Note: sbert will only use fewer tokens as its meant for sentences, 

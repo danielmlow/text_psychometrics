@@ -1,4 +1,6 @@
-gemma_2b = """
+prompts ={ 
+	'google/gemma_2b_it': 
+"""
 You are a conversation classification assistant. Classify the following {context} conversation:
 
 Here is the {context} conversation (ends with ```):
@@ -14,3 +16,4 @@ JSON:
 
 JSON:
 """
+}

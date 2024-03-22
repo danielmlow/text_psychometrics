@@ -1,4 +1,72 @@
 
+
+
+
+
+ctl_tags13 = ['self_harm',
+ 'suicide',
+ 'bully',
+ 'abuse_physical',
+ 'abuse_sexual',
+ 'relationship',
+ 'bereavement',
+ 'isolated',
+ 'anxiety',
+ 'depressed',
+ 'gender',
+ 'eating',
+ 'substance']
+
+
+# prompt_names = dict(zip(ctl_tags13, ['']*len(ctl_tags13)))
+prompt_names = {'self_harm': 'self harm or self injury',
+ 'suicide': 'suicidal thoughts or suicidal behaviors',
+ 'bully': 'bullying',
+ 'abuse_physical': 'physical abuse',
+ 'abuse_sexual': 'sexual abuse',
+ 'relationship': 'relationship issues',
+ 'bereavement': 'bereavement or grief',
+ 'isolated': 'loneliness or social isolation',
+ 'anxiety': 'anxiety',
+ 'depressed': 'depression',
+ 'gender': 'gender identity',
+ 'eating': 'an eating disorder or body image issues',
+ 'substance': 'substance use'}
+
+
+word_prototypes = {'suicide': ['suicide', 'want to die', 'kill myself'],
+ 'self_harm': ['cut myself', 'self harm'],
+ 'bully': ["bullied"],
+ 'abuse_physical': ['physical abuse'],
+ 'abuse_sexual': ['sexual abuse'],
+ 'relationship': ['abusive'],
+ 'bereavement': ["grief"],
+ 'isolated': ['lonely'],
+ 'anxiety': ['anxious'],
+ 'depressed': ['depressed'],
+ 'gender': ['gender'],
+ 'eating': ['eating disorder'],
+ 'substance': ['drugs', 'alcohol']}
+
+
+ctl_tags13_to_srl_name_mapping = {'self_harm': ['Direct self-injury'],
+ 'suicide': ['Active suicidal ideation & suicidal planning',
+  'Passive suicidal ideation',
+  'Other suicidal language'],
+ 'bully': ['Bullying'],
+ 'abuse_physical': ['Physical abuse & violence'],
+ 'abuse_sexual': ['Sexual abuse & harassment'],
+ 'relationship': ['Relationship issues'],
+ 'bereavement': ['Grief & bereavement'],
+ 'isolated': ['Loneliness & isolation'],
+ 'anxiety': ['Anxiety'],
+ 'depressed': ['Depressed mood'],
+ 'gender': ['Gender & sexual identity'],
+ 'eating': ['Eating disorders'],
+ 'substance': ['Other substance use', 'Alcohol use']}
+
+
+
 constructs_in_order = [
 	"Passive suicidal ideation",
 	"Active suicidal ideation & suicidal planning",
