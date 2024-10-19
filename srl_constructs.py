@@ -49,6 +49,23 @@ word_prototypes = {'suicide': ['suicide', 'want to die', 'kill myself'],
  'substance': ['drugs', 'alcohol']}
 
 
+
+
+word_prototypes = {'suicide': ['suicide', 'want to die', 'kill myself'],
+ 'self_harm': ['cut myself', 'self harm'],
+ 'bully': ["bullied"],
+ 'abuse_physical': ['physical abuse'],
+ 'abuse_sexual': ['sexual abuse'],
+ 'relationship': ['abusive'],
+ 'bereavement': ["grief"],
+ 'isolated': ['lonely'],
+ 'anxiety': ['anxious'],
+ 'depressed': ['depressed'],
+ 'gender': ['gender'],
+ 'eating': ['eating disorder'],
+ 'substance': ['drugs', 'alcohol']}
+
+
 ctl_tags13_to_srl_name_mapping = {'self_harm': ['Direct self-injury'],
  'suicide': ['Active suicidal ideation & suicidal planning',
   'Passive suicidal ideation',

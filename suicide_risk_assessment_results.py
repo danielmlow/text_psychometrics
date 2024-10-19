@@ -15,6 +15,8 @@
 Authors: Daniel M. Low
 License: See license in github repository
 '''
+import pickle
+
 
 import os
 import pandas as pd
@@ -28,8 +30,9 @@ ts = datetime.datetime.utcnow().strftime('%y-%m-%dT%H-%M-%S')
 pd.set_option("display.max_columns", None)
 # pd.options.display.width = 0
 
+# Local
+from srl_constructs import constructs_in_order
 
-# os.chdir(os.path.dirname(__file__)) # Set working directory to current file
 
 on_colab = False
 
@@ -53,7 +56,7 @@ os.makedirs(output_dir, exist_ok=True)
 # Config
 # balance = True # balance training set by downsampling
 task = 'classification'
-# target = 'immiment_risk'
+target = 'immiment_risk'
 normalize_lexicon = True
 
 
@@ -296,7 +299,7 @@ liwc_semantic = ['Analytic',
 # =================================================================
 
 
-import pickle
+
 run_this = False #True saves, False loads
 if run_this:
     with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
@@ -305,13 +308,6 @@ else:
 
     with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
     	dfs = pickle.load(f)
-
-
-# =================================================================
-
-
-from srl_constructs import constructs_in_order
-
 
 
 
@@ -339,7 +335,7 @@ def insert_empty_row(df, index_to_insert):
 	return df_updated
 
 
-# =================================================================
+
 
 
 
@@ -373,10 +369,10 @@ prompt_names = {
 
 feature_vectors_clean = {
 						#  'liwc22_semantic':"LIWC-22 only semantic (85)",
-						 'liwc22':"LIWC-22 (117)",
+						 'liwc22':"LIWC-22 (117) LogReg",
 						#  "SRL GPT-4 Turbo": "SRL GPT-4 (49)",
 						#  "srl_unvalidated": "SRL GPT-4 + manual (49)",
-						 "srl_validated": "SRL (50)",
+						 "srl_validated": "SRL (50) LogReg",
 						#  "cts_token_clause": "CTS 1 protoype (1)",
 						#  "text_descriptives": "Linguistic (N)",
 						#  "SRL GPT-4 Turbo_text_descriptives": "SRL GPT-4 + others (N)",
@@ -387,16 +383,20 @@ feature_vectors_clean = {
 						 }
 
 
+
+
 report_content_13 = False 
-sample_sizes = [50,150,2000] # TODO
+sample_sizes = [50,150,2000] 
 model_names = ['LogisticRegression']
-timestamp = '24-03-06T06-17-02'
-all_results = []
+timestamp = '24-03-25T22-23-53' 
+all_results = [] # to add across types of feature vectors
 all_results_content_validity_3 = []
 
+# for test_set in ['results']:
 for test_set in ['results', 'results_content_validity']:
 
 	results_all_features_and_n = []
+	results_all_features_and_n_all = []
 
 	for n in sample_sizes:
 		print(n)
@@ -413,69 +413,119 @@ for test_set in ['results', 'results_content_validity']:
 			for feature in feature_vectors_clean.keys():
 				
 				df = pd.read_csv(f'{input_dir}{results_dir}{test_set}_{n}_{timestamp}.csv')
+				df['prototypicality'] = [1.3, 3]* int(len(df)/2)
 				
-				df['Construct'] = [n.split(f'{model}_')[-1] for n in df['Model'].values]
-				df['Model'] = [n.split('_')[0] for n in df['Model'].values]
-				df['Model'] = df['Feature vector'] + ' ' + df['Model']
+				# df['Construct'] = [n.split(f'{model}_')[-1] for n in df['Model'].values]
+				# df['Model'] = [n.split('_')[0] for n in df['Model'].values]
+				# df['Model'] = df['Feature vector'] + ' ' + df['Model']
 				
-				df_i = df[df['Feature vector']==feature]
+				df['Classes'] = [eval(n)[-1].replace('_', ' ') for n in df['Classes'].values]
 				if test_set == 'results':
-					metric_name = 'ROC AUC'
-				elif test_set == 'results_content_validity':
-					metric_name = 'Sensitivity'
+					df = df [(df['Class'] == 1) & (df['Average'] == 'binary')] #only these metrics
+				
+				df_i = df[(df['Feature vector']==feature) & (df['prototypicality'] == 3)]
+				df_i
 
-				df_i = df_i[['Construct', 'Model', metric_name]].T
-				df_i.index = ['Construct','Model', df_i.iloc[1,1]]
-				df_i.drop(df_i.index[1], inplace=True)
+
+				# df.groupby(['Feature vector', 'Model'])['Sensitivity'].mean()
+
+				
+				
+				
+				
+				
+				if test_set == 'results':
+					# metric_name = ['Sensitivity', 'Specificity', 'Precision', 'ROC AUC']
+					metric_name = ['ROC AUC']
+					# metric_name = ['ROC AUC']
+				elif test_set == 'results_content_validity':
+					metric_name = ['Sensitivity']
+
+				df_i = df_i[['Model', 'Classes' ]+metric_name].T
+				# df_i.index = ['Construct','Model', df_i.iloc[1,1]]
+				df_i.drop(df_i.index[0], inplace=True) # drop Model
 				# remove header
 				df_i.columns = df_i.iloc[0]
 				df_i.drop(df_i.index[0], inplace=True)
 				
+				
+				
 				# Add column with Mean [min-max]
 				# df_i.index.set_index('Construct')
-				df_i = df_i.astype(float).round(2)
+				# df_i = df_i.astype(float).round(2)
 
-				if test_set == 'results_content_validity':
-					df_i_3 = df_i[[n for n in df_i.columns if n.endswith('-3') ]]
-					df_i_3.columns = [n.replace('_content-validity-3', '') for n in df_i_3.columns]
-					df_i_13 = df_i[[n for n in df_i.columns if n.endswith('-13') ]]
-					df_i_13.columns = [n.replace('_content-validity-13', '') for n in df_i_13.columns]
+				# if test_set == 'results_content_validity':
+				# 	# df_i_3 = df_i[[n for n in df_i.columns if n.endswith('-3') ]]
+				# 	# df_i_3.columns = [n.replace('_content-validity-3', '') for n in df_i_3.columns]
+				# 	# df_i_13 = df_i[[n for n in df_i.columns if n.endswith('-13') ]]
+				# 	# df_i_13.columns = [n.replace('_content-validity-13', '') for n in df_i_13.columns]
 					
-					if report_content_13:
-						for df_i, threshold in zip([df_i_3, df_i_13], ['3', '1.3']):
-							df_i[metric_name] = f'{np.round(df_i.mean(axis=1).values[0],2)} [{np.round(df_i.min(axis=1).values[0],2)}-{np.round(df_i.max(axis=1).values[0],2)}]'
-							df_i['N'] = n*2
-							df_i['Prototypicality'] = threshold
+				# 	if report_content_13:
+				# 		for df_i, threshold in zip([df_i_3, df_i_13], ['3', '1.3']):
+				# 			df_i[metric_name] = f'{np.round(df_i.mean(axis=1).values[0],2)} [{np.round(df_i.min(axis=1).values[0],2)}-{np.round(df_i.max(axis=1).values[0],2)}]'
+				# 			df_i['N'] = n*2
+				# 			df_i['Prototypicality'] = threshold
 							
-							results_all_features_and_n.append(df_i)
-					else:
-						for df_i, threshold in zip([df_i_3], ['3']):
-							df_i[metric_name] = f'{np.round(df_i.mean(axis=1).values[0],2)} [{np.round(df_i.min(axis=1).values[0],2)}-{np.round(df_i.max(axis=1).values[0],2)}]'
-							df_i['N'] = n*2
-							df_i['Prototypicality'] = threshold
+				# 			results_all_features_and_n.append(df_i)
+				# 	else:
+				# 		for df_i, threshold in zip([df_i_3], ['3']):
+				# 			df_i[metric_name] = f'{np.round(df_i.mean(axis=1).values[0],2)} [{np.round(df_i.min(axis=1).values[0],2)}-{np.round(df_i.max(axis=1).values[0],2)}]'
+				# 			df_i['N'] = n*2
+				# 			df_i['Prototypicality'] = threshold
 							
-							results_all_features_and_n.append(df_i)	
+				# 			results_all_features_and_n.append(df_i)	
 
 					
-				else:
-
-					df_i[metric_name] = f'{np.round(df_i.mean(axis=1).values[0],2)} [{np.round(df_i.min(axis=1).values[0],2)}-{np.round(df_i.max(axis=1).values[0],2)}]'
-					df_i['N'] = n*2
-					results_all_features_and_n.append(df_i)
+				# else:
+				
+				df_i2 = df_i.copy()	
+				df_i3 = df_i.copy()	
+				df_i2['Summary'] = [f'{np.round(df_i.mean(axis=1).values[i],2)} [{np.round(df_i.min(axis=1).values[i],2)}-{np.round(df_i.max(axis=1).values[i],2)}]' for i in range(len(metric_name))]
+				df_i3[metric_name] = [f'{np.round(df_i.mean(axis=1).values[i],2)} [{np.round(df_i.min(axis=1).values[i],2)}-{np.round(df_i.max(axis=1).values[i],2)}]' for i in range(len(metric_name))]
+				df_i2['N'] = n*2
+				df_i2['Feature'] = f'{feature}'
+				df_i2['Model'] = f'{model}'
+				df_i3['N'] = n*2
+				df_i3['Feature'] = f'{feature}'
+				df_i3['Model'] = f'{model}'
+				results_all_features_and_n_all.append(df_i2)
+				results_all_features_and_n.append(df_i3)
 	results_all_features_and_n = pd.concat(results_all_features_and_n, axis=0)
+	results_all_features_and_n.drop(df['Classes'].unique().tolist(),axis=1, inplace=True)
+	results_all_features_and_n.reset_index(drop=True, inplace=True)
+	results_all_features_and_n.drop_duplicates(keep='last', inplace=True)
+	results_all_features_and_n.sort_values(['Model', 'Feature', 'N'], inplace=True)
+	results_all_features_and_n = results_all_features_and_n
+	
+	results_all_features_and_n = results_all_features_and_n[['Feature', 'Model','N']+ metric_name]
 
-	# sort index
-	results_all_features_and_n.sort_index(inplace=True)
-	# results_all_features_and_n.sort_values(['Construct', 'N'], inplace=True)
-	results_all_features_and_n.columns.name = 'Model'
-	results_all_features_and_n.columns = [prompt_names.get(n).capitalize() if n in prompt_names.keys() else n for n in results_all_features_and_n.columns]
-	results_all_features_and_n.index = [n.replace('liwc22', feature_vectors_clean.get('liwc22')).replace('srl_validated', feature_vectors_clean.get('srl_validated')).replace('LogisticRegression', 'LogReg') for n in results_all_features_and_n.index]
+	
+
+	
+	# for metric in metric_name:
+	# 	results_all_features_and_n_metrics = results_all_features_and_n[metric].astype(float).round(2)
+
+
+
+	results_all_features_and_n.reset_index(drop=True, inplace=True)
+	# results_all_features_and_n = results_all_features_and_n.drop_duplicates()
+	# results_all_features_and_n.columns.name = 'Model'
+	results_all_features_and_n['Feature'] = [feature_vectors_clean.get(n) for n in results_all_features_and_n['Feature']]
+	results_all_features_and_n.drop(['Model'], axis=1, inplace=True)
+	# results_all_features_and_n.index.name = None
+	
+	# results_all_features_and_n.columns = [prompt_names.get(n).capitalize() if n in prompt_names.keys() else n for n in results_all_features_and_n.columns]
+	# results_all_features_and_n.index = [n.replace('liwc22', feature_vectors_clean.get('liwc22')).replace('srl_validated', feature_vectors_clean.get('srl_validated')).replace('LogisticRegression', 'LogReg') for n in results_all_features_and_n.index]
 	if test_set == 'results':
 		all_results.append(results_all_features_and_n)
 	elif test_set == 'results_content_validity':
 		all_results_content_validity_3.append(results_all_features_and_n)
 	# results_all_features_and_n.to_csv(f'{input_dir}{test_set}_all_features_and_n.csv', index=True)
+	results_all_features_and_n_all_constructs = pd.concat(results_all_features_and_n_all, axis=0)
 
+
+all_results[0]
+all_results_content_validity_3[0]
 
 # cts
 # ==========================================================================================
@@ -484,30 +534,45 @@ test_set = 'results'
 
 file = 'results_50_24-03-07T19-34-40.csv'
 
-for feature in ['cts_token_clause', 'cts_prototypes_clause']:
 
-	for test_set in ['results', 'results_content_validity']:
+
+for test_set in ['results', 'results_content_validity']:
+# for test_set in ['results']:
+	results_all_features_and_n = []
+	for feature in ['cts_token_clause', 'cts_prototypes_clause']:
+	# for feature in ['cts_token_clause']:
+
+
+		
+
+		
 
 		if feature == 'cts_token_clause':
 			if test_set == 'results':
-				path = 'results_24-03-07T19-34-40_cts_token_clause/results_50_24-03-07T19-34-40.csv'
+				path = 'results_24-03-30T22-13-22_cts_token_clause/results_0_24-03-30T22-13-22.csv'
 			elif test_set == 'results_content_validity':
-				path = 'results_24-03-07T19-34-40_cts_token_clause/results_content_validity_50_24-03-07T19-34-40.csv'
+				path = 'results_24-03-30T22-13-22_cts_token_clause/results_content_validity_0_24-03-30T22-13-22.csv'
 		elif feature == 'cts_prototypes_clause':
 			if test_set == 'results':
-				path = 'results_24-03-07T23-57-26_cts_prototypes_clause/results_0_24-03-07T23-57-26.csv'
+				path = 'results_24-03-30T22-13-22_cts_prototypes_clause/results_0_24-03-30T22-13-22.csv'
 			elif test_set == 'results_content_validity':
-				path = 'results_24-03-07T23-57-26_cts_prototypes_clause/results_content_validity_0_24-03-07T23-57-26.csv'
+				path = 'results_24-03-30T22-13-22_cts_prototypes_clause/results_content_validity_0_24-03-30T22-13-22.csv'
 		
 		
-		results_all_features_and_n = []
+		
 
+		
 		df = pd.read_csv('./data/output/binary_classification/'+path)
-		df['Construct'] = [n.split(f'{model}_')[-1] for n in df['Model'].values]
-		df['Model'] = [n.split('_')[0] for n in df['Model'].values]
-		df['Model'] = df['Feature vector'] + ' ' + df['Model']
+		df['Construct'] = [eval(n)[1] for n in df['Classes'].values]
+		
+		df['Model'] = df['Feature vector']
+		if test_set == 'results':
+			df = df [(df['Class'] == 1) & (df['Average'] == 'binary')] #only these metrics
+	
+		df_i = df[(df['Feature vector']==feature)]
+		
 
-		df_i = df[df['Feature vector']==feature]
+		# df_i = df[df['Feature vector']==feature]
 		if test_set == 'results':
 			metric_name = 'ROC AUC'
 		elif test_set == 'results_content_validity':
@@ -515,69 +580,81 @@ for feature in ['cts_token_clause', 'cts_prototypes_clause']:
 
 		df_i = df_i[['Construct', 'Model', metric_name]].T
 		df_i.index = ['Construct','Model', df_i.iloc[1,1]]
+		df_i.columns = df_i.iloc[0]
 		df_i.drop(df_i.index[1], inplace=True)
 		# remove header
-		df_i.columns = [n.split(feature+'_')[-1].split('_thesh')[0] for n in df_i.iloc[0]]
+		
 		df_i.drop(df_i.index[0], inplace=True)
+		
 
 		# Add column with Mean [min-max]
 		# df_i.index.set_index('Construct')
 		df_i = df_i.astype(float).round(2)
 
-		if test_set == 'results_content_validity':
+		# if test_set == 'results_content_validity':
 			
-			df_i_3 = df_i[[n for n in df_i.columns if n.endswith('-3') ]]
-			df_i_3.columns = [n.replace('_content-validity-3', '') for n in df_i_3.columns]
+			# df_i_3 = df_i[[n for n in df_i.columns if n.endswith('-3') ]]
+			# df_i_3.columns = [n.replace('_content-validity-3', '') for n in df_i_3.columns]
 			# df_i_13 = df_i[[n for n in df_i.columns if n.endswith('-13') ]]
 			# df_i_13.columns = [n.replace('_content-validity-13', '') for n in df_i_13.columns]
 			# for df_i, threshold in zip([df_i_3, df_i_13], ['3', '1.3']):
 			
-			for df_i, threshold in zip([df_i_3], ['3']):
-				df_i[metric_name] = f'{np.round(df_i.mean(axis=1).values[0],2)} [{np.round(df_i.min(axis=1).values[0],2)}-{np.round(df_i.max(axis=1).values[0],2)}]'
-				df_i['N'] = n*2
-				df_i['Prototypicality'] = threshold
-				df_i['N'] = 0
-				if feature == 'cts_token_clause':
-					df_i.index = ['CTS 1 prototype (1)']
-				elif feature == 'cts_prototypes_clause':
-					df_i.index = ['CTS many prototypes (1)']
+			# for df_i, threshold in zip([df_i_3], ['3']):
+			# 	df_i[metric_name] = f'{np.round(df_i.mean(axis=1).values[0],2)} [{np.round(df_i.min(axis=1).values[0],2)}-{np.round(df_i.max(axis=1).values[0],2)}]'
+			# 	df_i['N'] = n*2
+			# 	df_i['Prototypicality'] = threshold
+			# 	df_i['N'] = 0
+			# 	if feature == 'cts_token_clause':
+			# 		df_i.index = ['CTS 1 prototype (1)']
+			# 	elif feature == 'cts_prototypes_clause':
+			# 		df_i.index = ['CTS many prototypes (1)']
 
-				results_all_features_and_n.append(df_i)
+			# 	results_all_features_and_n.append(df_i)
 			
-		else:
+		# else:
 
-			df_i[metric_name] = f'{np.round(df_i.mean(axis=1).values[0],2)} [{np.round(df_i.min(axis=1).values[0],2)}-{np.round(df_i.max(axis=1).values[0],2)}]'
-			df_i['N'] = 0
-			if feature == 'cts_token_clause':
-				df_i.index = ['CTS 1 prototype (1)']
-			elif feature == 'cts_prototypes_clause':
-				df_i.index = ['CTS many prototypes (1)']
-			results_all_features_and_n.append(df_i)
-		results_all_features_and_n = pd.concat(results_all_features_and_n, axis=0)
-
-		# sort index
-		results_all_features_and_n.sort_index(inplace=True)
-		# results_all_features_and_n.sort_values(['Construct', 'N'], inplace=True)
-		results_all_features_and_n.columns.name = 'Model'
-		results_all_features_and_n.columns = [prompt_names.get(n).capitalize() if n in prompt_names.keys() else n for n in results_all_features_and_n.columns]
-		results_all_features_and_n.index = [n.replace('liwc22', feature_vectors_clean.get('liwc22')).replace('srl_validated', feature_vectors_clean.get('srl_validated')).replace('LogisticRegression', 'LogReg') for n in results_all_features_and_n.index]
-		if test_set == 'results':
-			all_results.append(results_all_features_and_n)
-		elif test_set == 'results_content_validity':
-			all_results_content_validity_3.append(results_all_features_and_n)
-		# results_all_features_and_n.to_csv(f'{input_dir}{test_set}_all_features_and_n.csv', index=True)
+		df_i[metric_name] = f'{np.round(df_i.mean(axis=1).values[0],2)} [{np.round(df_i.min(axis=1).values[0],2)}-{np.round(df_i.max(axis=1).values[0],2)}]'
+		df_i['N'] = 0
+		df_i['Prototypicality'] = threshold
+		if feature == 'cts_token_clause':
+			df_i.index = ['CTS 1 prototype (1)']
+		elif feature == 'cts_prototypes_clause':
+			df_i.index = ['CTS many prototypes (1)']
+		
+		results_all_features_and_n.append(df_i)
+		
+	results_all_features_and_n = pd.concat(results_all_features_and_n, axis=0)
+	results_all_features_and_n.reset_index(inplace=True)	
+	results_all_features_and_n.rename(columns ={'index':'Feature'}, inplace=True)
+	
 
 
+	# sort index
+	
+	# results_all_features_and_n.sort_values(['Construct', 'N'], inplace=True)
+	
+	# results_all_features_and_n.columns = [prompt_names.get(n).capitalize() if n in prompt_names.keys() else n for n in results_all_features_and_n.columns]
+	# results_all_features_and_n.index = [n.replace('liwc22', feature_vectors_clean.get('liwc22')).replace('srl_validated', feature_vectors_clean.get('srl_validated')).replace('LogisticRegression', 'LogReg') for n in results_all_features_and_n.index]
+	if test_set == 'results':
+		all_results.append(results_all_features_and_n[['Feature','N', 'ROC AUC']])
+	elif test_set == 'results_content_validity':
+		all_results_content_validity_3.append(results_all_features_and_n[['Feature','N', 'Sensitivity']])
+	# results_all_features_and_n.to_csv(f'{input_dir}{test_set}_all_features_and_n.csv', index=True)
 
-	results_all_df = pd.concat(all_results, axis=0)
-	results_all_df = results_all_df[['N', 'ROC AUC', 'Self harm', 'Suicide', 'Bullying', 'Physical abuse', 'Sexual abuse',
-		'Relationship issues', 'Bereavement', 'Isolation', 'Anxiety','Depression', 'Gender identity', 'Eating disorder', 'Substance use']]
+
+
+results_all_df = pd.concat(all_results, axis=0)
+# results_all_df = results_all_df[['N', 'ROC AUC', 'Self harm', 'Suicide', 'Bullying', 'Physical abuse', 'Sexual abuse',
+# 	'Relationship issues', 'Bereavement', 'Isolation', 'Anxiety','Depression', 'Gender identity', 'Eating disorder', 'Substance use']]
 
 
 	# TODO: Add content validity
-	results_all_df_content_validity = pd.concat(all_results_content_validity_3, axis=0)
-	results_all_df_content_validity = results_all_df_content_validity[['N', 'Sensitivity', 'Self harm', 'Suicide', 'Bullying', 'Physical abuse', 'Sexual abuse',
-		'Relationship issues', 'Bereavement', 'Isolation', 'Anxiety','Depression', 'Gender identity', 'Eating disorder', 'Substance use']]
+results_all_df_content_validity = pd.concat(all_results_content_validity_3, axis=0)
+# results_all_df_content_validity = results_all_df_content_validity[['N', 'Sensitivity', 'Self harm', 'Suicide', 'Bullying', 'Physical abuse', 'Sexual abuse',
+# 	'Relationship issues', 'Bereavement', 'Isolation', 'Anxiety','Depression', 'Gender identity', 'Eating disorder', 'Substance use']]
+
+
+
 
 # Gemma 
 # ========================================================================
@@ -623,12 +700,24 @@ for feature in features:
 
 				results_dir = 'google-gemma-7b-it_2024-03-01T02-03-13_600/'
 				timestamp = results_dir.split('_')[-2]
+				path = results_dir + 'results_all_constructs_google-gemma-7b-it_2024-03-01T02-03-13_600.csv'
 			elif test_set == 'results_content_validity':
 				results_dir = 'google-gemma-7b-it_2024-03-06T23-29-37_construct-validity-3_prototypical_of/'
 				timestamp = results_dir.split('_')[1]
 		
-		
+
+		gemma_results = pd.read_csv(f'./data/output/binary_classification/{path}', index_col=0)
+		gemma_results_i =pd.DataFrame([feature, 0, gemma_results['ROC AUC'].iloc[-2]],index = ['Feature','N', 'ROC AUC'] ).T # mean)
+
+		all_results.append(gemma_results_i)
+
+
+
+
+
 		results_all_features_and_n = []
+
+
 		df = []
 		
 
@@ -711,16 +800,17 @@ for feature in features:
 		results_all_features_and_n.columns = [prompt_names.get(n).capitalize() if n in prompt_names.keys() else n for n in results_all_features_and_n.columns]
 		results_all_features_and_n.index = [n.replace('liwc22', feature_vectors_clean.get('liwc22')).replace('srl_validated', feature_vectors_clean.get('srl_validated')).replace('LogisticRegression', 'LogReg') for n in results_all_features_and_n.index]
 		if test_set == 'results':
-			all_results.append(results_all_features_and_n)
+			pass
+			# all_results.append(results_all_features_and_n)
 		elif test_set == 'results_content_validity':
 			all_results_content_validity_3.append(results_all_features_and_n)
 		# results_all_features_and_n.to_csv(f'{input_dir}{test_set}_all_features_and_n.csv', index=True)
 
 
-
+	# all_results[0]
 	results_all_df = pd.concat(all_results, axis=0)
-	results_all_df = results_all_df[['N', 'ROC AUC', 'Self harm', 'Suicide', 'Bullying', 'Physical abuse', 'Sexual abuse',
-		'Relationship issues', 'Bereavement', 'Isolation', 'Anxiety','Depression', 'Gender identity', 'Eating disorder', 'Substance use']]
+	# results_all_df = results_all_df[['N', 'ROC AUC', 'Self harm', 'Suicide', 'Bullying', 'Physical abuse', 'Sexual abuse',
+	# 	'Relationship issues', 'Bereavement', 'Isolation', 'Anxiety','Depression', 'Gender identity', 'Eating disorder', 'Substance use']]
 
 
 	# TODO: Add content validity
@@ -729,7 +819,7 @@ for feature in features:
 		'Relationship issues', 'Bereavement', 'Isolation', 'Anxiety','Depression', 'Gender identity', 'Eating disorder', 'Substance use']]
 
 
-results_all_df.to_csv(output_dir+'tables/binary_classification_results.csv', index=True)
+results_all_df.to_csv(output_dir+'tables/binary_classification_results_roc_auc.csv', index=True)
 
 results_all_df_content_validity.index = [n.replace(' srl', '') for n in results_all_df_content_validity.index]
 results_all_df_content_validity.to_csv(output_dir+'tables/content_validity.csv', index=True)

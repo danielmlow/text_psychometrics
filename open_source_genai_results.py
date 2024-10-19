@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-input_dir = './data/output/ml_performance/'
+input_dir = './data/output/binary_classification/'
 
 ctl_tags13 = ['self_harm',
  'suicide',
@@ -84,7 +84,7 @@ def results_df(dvs, path_to_dir, columns_to_keep = 'all'):
 
 	results_all = pd.concat(results_all).round(2)
 	results_all = results_all.reset_index(drop=True)
-	results_all['Model'] = ['-'.join(n.split('-')[:-1]) for n in results_all['Model'].tolist()] #results_all['Model'] = [n.split('-')[:-1] for n in results_all['Model'].tolist()]
+	results_all['Feature'] = ['-'.join(n.split('-')[:-1]) for n in results_all['Model'].tolist()] #results_all['Model'] = [n.split('-')[:-1] for n in results_all['Model'].tolist()]
 
 	if columns_to_keep != 'all':
 		results_all = results_all[columns_to_keep]
@@ -111,16 +111,47 @@ def add_summary_row(df):
 	df_with_summary = pd.concat([df, summary_df], ignore_index=False)
 	return df_with_summary
 
-
+import random
 try: dirs.remove('.DS_Store')
 except: pass
+
+
 for dir in dirs_to_analyze:
 	print('=========')
 	print(dir)
 	ctl_tags13_exist = [n for n in ctl_tags13 if n in os.listdir(input_dir+dir+'/')]
 	# ctl_tags13_exist.remove('isolated')
 
+	
+	
+
 	results_all = results_df(ctl_tags13_exist, input_dir+dir, columns_to_keep=columns_to_keep)	
+
+	# recompute ROC AUC 
+	roc_auc_bin_all_constructs = []
+	roc_auc_all_constructs = []
+	for dv in ctl_tags13_exist:
+		results_i = pd.read_csv(input_dir+dir+'/'+dv+'/y_proba_'+dv+'.csv', index_col = 0)
+		
+		
+		y_proba_1 = results_i[dv].tolist()
+		y_proba_1 = [float(y_i.replace(y_i, str(random.random()))) if y_i in ['True','False'] else y_i for y_i in y_proba_1]
+		y_proba_1 = [float(n) for n in y_proba_1]
+		y_pred = results_i['y_pred'].tolist()
+		y_test = results_i['y_test'].tolist()
+		from sklearn.metrics import roc_auc_score
+		roc_auc_i = roc_auc_score(y_test, y_proba_1)
+		roc_auc_all_constructs.append(roc_auc_i)
+		roc_auc_i_bin = roc_auc_score(y_test, y_pred)
+		roc_auc_bin_all_constructs.append(roc_auc_i_bin)
+	
+	results_all['ROC AUC y_pred'] = np.round(roc_auc_bin_all_constructs,2)
+	results_all['ROC AUC'] = np.round(roc_auc_all_constructs,2)
+	results_all['N'] = [0]*len(results_all)
+	results_all.reset_index()
+	
+
+
 	
 	results_all = add_summary_row(results_all)
 	display(results_all)

@@ -274,6 +274,9 @@ if len(docs_to_encode)>0:
 	docs_clean_clauses_clean = clean_ctl_conversation(docs_clean_clauses)
 
 
+
+
+
 	# import tensorboard
 	from sentence_transformers import SentenceTransformer
 	embeddings_name = 'all-MiniLM-L6-v2'
@@ -355,7 +358,6 @@ Counter(y_train)
 Counter(y_test)
 X_test.shape
 
-gridsearch = False
 
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer

@@ -727,12 +727,13 @@ toy = False
 
 
 
-feature_vectors = ['cts_token_clause', 
-				   #'liwc22', 
-				#    'srl_validated'
+feature_vectors = [
+	# 'cts_token_clause', 
+				   'liwc22', 
+				   'srl_validated'
 				   
 				   ] #, 'liwc22_semantic']#, ]#['all-MiniLM-L6-v2', 'srl_unvalidated','SRL GPT-4 Turbo', 'liwc22', 'liwc22_semantic'] # srl_unvalidated_text_descriptives','text_descriptives' ]
-sample_sizes = [50, 150] 
+sample_sizes = [50, 150, 2000] 
 
 task = 'classification'
 if task == 'classification':
@@ -958,23 +959,32 @@ for n in sample_sizes:
 					y_proba_1 = y_proba[:,1]
 					y_pred = y_proba_1>=0.5*1                   # define your threshold
 					# Predictions
-					y_pred_df = pd.DataFrame(y_pred)
-					
-					y_pred_df.to_csv(output_dir_i+f'y_pred_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index=False)
-					pd.DataFrame(y_pred_content_validity_13).to_csv(output_dir_i+f'y_pred_content_validity_13_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index=False)
-					pd.DataFrame(y_pred_content_validity_3).to_csv(output_dir_i+f'y_pred_content_validity_3_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index=False)
+					output_filename = f'{feature_vector}_{model_name}_{dv}_{n}'
+					custom_cr, sklearn_cr, cm_df_meaning, cm_df, cm_df_norm, y_pred_df = metrics_report.save_classification_performance(y_test, y_pred, y_proba_1, output_dir_i, output_filename=output_filename,feature_vector=feature_vector, model_name=model_name,best_params = best_params, classes = ['Other', f'{dv_clean}'],amount_of_clauses=None, save_output=True)
+
+					output_filename = f'content-validity-13_{feature_vector}_{model_name}_{dv}_{n}'
+					custom_cr_content_13, sklearn_cr, y_pred_df = metrics_report.save_classification_performance(y_test_13_dv, y_pred_content_validity_13, y_pred_content_validity_13, output_dir_i, output_filename=output_filename,feature_vector=feature_vector, model_name=model_name,best_params = best_params, classes = ['Other', f'{dv_clean}'],amount_of_clauses=None, save_confusion_matrix=False, save_output=True)
+					output_filename = f'content-validity-3_{feature_vector}_{model_name}_{dv}_{n}'
+					custom_cr_content_3, sklearn_cr, y_pred_df = metrics_report.save_classification_performance(y_test_3_dv, y_pred_content_validity_3, y_pred_content_validity_3, output_dir_i, output_filename=output_filename,feature_vector=feature_vector, model_name=model_name,best_params = best_params, classes = ['Other', f'{dv_clean}'],amount_of_clauses=None, save_confusion_matrix=False, save_output=True)
+																														 
+					# reload(metrics_report)
+
+
+					# pd.DataFrame(y_pred_content_validity_13).to_csv(output_dir_i+f'y_pred_content_validity_13_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index=False)
+					# pd.DataFrame(y_pred_content_validity_3).to_csv(output_dir_i+f'y_pred_content_validity_3_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index=False)
 
 					
-					path = output_dir_i + f'{feature_vector}_{model_name}_{n}_{ts_i}_{dv}'
-					cm_df_meaning, cm_df, cm_df_norm = cm(y_test,y_pred, output_dir_i, f'{model_name}_{dv}', ts_i, classes = ['Other', f'{dv_clean}'], save=True)
-					results_i = custom_classification_report(y_test, y_pred, y_proba_1, output_dir_i,gridsearch=gridsearch,
-											best_params=best_params,feature_vector=feature_vector,model_name=f'{model_name}_{dv}',round_to = 2, ts = ts_i)
+					# path = output_dir_i + f'{feature_vector}_{model_name}_{n}_{ts_i}_{dv}'
+					# # cm_df_meaning, cm_df, cm_df_norm = cm(y_test,y_pred, output_dir_i, f'{model_name}_{dv}', ts_i, classes = ['Other', f'{dv_clean}'], save=True)
+					# results_i = custom_classification_report(y_test, y_pred, y_proba_1, output_dir_i,gridsearch=gridsearch,
+					# 						best_params=best_params,feature_vector=feature_vector,model_name=f'{model_name}_{dv}',round_to = 2, ts = ts_i)
 					
 
-					results_i_content_13 = custom_classification_report(y_test_13_dv, y_pred_content_validity_13, y_pred_content_validity_13, output_dir_i,gridsearch=gridsearch,
-											best_params=best_params,feature_vector=feature_vector,model_name=f'{model_name}_{dv}_content-validity-13',round_to = 2, ts = ts_i)
-					results_i_content_3 = custom_classification_report(y_test_3_dv, y_pred_content_validity_3, y_pred_content_validity_3, output_dir_i,gridsearch=gridsearch,
-											best_params=best_params,feature_vector=feature_vector,model_name=f'{feature_vector}_{model_name}_{dv}_content-validity-3',round_to = 2, ts = ts_i)
+					# results_i_content_13 = custom_classification_report(y_test_13_dv, y_pred_content_validity_13, y_pred_content_validity_13, output_dir_i,gridsearch=gridsearch,
+					# 						best_params=best_params,feature_vector=feature_vector,model_name=f'{model_name}_{dv}_content-validity-13',round_to = 2, ts = ts_i)
+					# results_i_content_3 = custom_classification_report(y_test_3_dv, y_pred_content_validity_3, y_pred_content_validity_3, output_dir_i,gridsearch=gridsearch,
+					# 						best_params=best_params,feature_vector=feature_vector,model_name=f'{feature_vector}_{model_name}_{dv}_content-validity-3',round_to = 2, ts = ts_i)
+				
 				elif task == 'regression':
 					if gridsearch:
 						y_pred = best_model.predict(X_test)
@@ -986,10 +996,10 @@ for n in sample_sizes:
 												gridsearch=gridsearch,
 											best_params=best_params,feature_vector=feature_vector,model_name=model_name, plot = True, save_fig_path = path,n = n, round_to = 2)
 				# results_i.to_csv(output_dir_i + f'results_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv')
-				display(results_i)
-				results.append(results_i)
-				results_content_validity.append(results_i_content_13)
-				results_content_validity.append(results_i_content_3)
+				# display(results_i)
+				results.append(custom_cr)
+				results_content_validity.append(custom_cr_content_13)
+				results_content_validity.append(custom_cr_content_3)
 				# Feature importance
 				if feature_vector == 'tfidf':
 					if model_name in ['XGBRegressor']:

@@ -21,6 +21,7 @@ ts = datetime.datetime.utcnow().strftime('%y-%m-%dT%H-%M-%S')
 ts
 
 
+
 # ============================================================
 
 
@@ -129,27 +130,27 @@ if run_this:
 	print('made a difference in', df[df[text_col] != df['docs_clean']].shape[0]/df.shape[0], 'samples')
 
 
-more_stop_words = ['ca', 'nt','like', "'", "´", "n’t"]
+
 
 # tokenize documents into words (remove stop words and lemmatize)
 # ============================================================
 
 run_this=False
 if run_this:
+	more_stop_words = ['ca', 'nt','like', "'", "´", "n’t"]
 	# words: tokenize by words, remove stop words and lemmatize for word-word similarity
 	docs_clean_w_w = stop_words.remove(list(docs_clean), language = 'en', sws = 'nltk', remove_punct=True, extend_stopwords=more_stop_words)
 	docs_clean_w_w = [clean.remove_multiple_spaces(doc) for doc in docs_clean_w_w]
 	docs_clean_w_w = spacy_lemmatizer(docs_clean_w_w, language ='en') #this takes 22s for 5200 docs
 	df['docs_clean_w_w'] = docs_clean_w_w
 	
+
 # Tokenize into clauses
 # ============================================================
 # 15m samples for 38k CTL convos just texter
 # 11m samples for 6500 CTL convos  texter+counselor
 	
-
-
-run_this = True
+run_this = False
 if run_this:
 	print(len(docs_clean))
 
@@ -166,36 +167,42 @@ if run_this:
 	
 	df['docs_clean_clauses'] = docs_clean_clauses
 
-	df.to_csv(f'./data/input/ctl/X_test_all_with_interaction_preprocessed_{ts}.csv')
+	
+
+
+	# More cleaning of docs
+	# ============================================================
+	df['docs_clean_clauses_original'] = df['docs_clean_clauses'].values
+	docs_clean_clauses = df['docs_clean_clauses'].values
+	docs_clean_clauses_clean = []
+	for doc in docs_clean_clauses:
+		clauses_doc_i = [] 
+		# if doc != []:
+		# 	clauses = eval(doc)
+		if doc == []:
+			docs_clean_clauses_clean.append(doc)
+			continue
+		for clause in doc:
+			clauses_doc_i.extend(clause.split('\n'))
+		doc_clean = [n.replace('texter : ','').replace('counselor : ','').replace('\n','. ').strip('.,:\n').replace(" '", "'").replace(' ’', "'").replace(' ,', ',').strip(' ').replace('observer : ', '').replace(" n't", "n't").replace(" n’t", "n't").replace(" ( 1/2 )", "").replace('{ { URL } }', '').replace('[ scrubbed ]','').replace('  ', ' ') for n in clauses_doc_i]
+		doc_clean = [n for n in doc_clean if (n not in ['texter', 'counselor', 'observer', '', '-- UNREADABLE MESSAGE --', '( 2/2 )', '( 1/2 )']) and (len(n)>5)]
+		
+		docs_clean_clauses_clean.append(doc_clean)
+
+	df['docs_clean_clauses']  = docs_clean_clauses_clean
+	conversation_ids = df['conversation_id'].values
+
+	print(len(docs_clean_clauses_clean))
+	# df.to_csv(f'./data/input/ctl/X_test_all_with_interaction_preprocessed_{ts}.csv')
+
+
 else:
+	docs_clean = [n.replace('\n', '. ') for n in docs_clean] # help tokenize by clause
 	df = pd.read_csv('./data/input/ctl/X_test_all_with_interaction_preprocessed_24-03-07T04-25-04.csv')
 	
 
-# More cleaning of docs
-# ============================================================
-df['docs_clean_clauses_original'] = df['docs_clean_clauses'].values
-docs_clean_clauses = df['docs_clean_clauses'].values
-docs_clean_clauses_clean = []
-for doc in docs_clean_clauses:
-	clauses_doc_i = [] 
-	# if doc != []:
-	# 	clauses = eval(doc)
-	if doc == []:
-		docs_clean_clauses_clean.append(doc)
-		continue
-	for clause in doc:
-		 clauses_doc_i.extend(clause.split('\n'))
-	doc_clean = [n.replace('texter : ','').replace('counselor : ','').replace('\n','. ').strip('.,:\n').replace(" '", "'").replace(' ’', "'").replace(' ,', ',').strip(' ').replace('observer : ', '').replace(" n't", "n't").replace(" n’t", "n't").replace(" ( 1/2 )", "").replace('{ { URL } }', '').replace('[ scrubbed ]','').replace('  ', ' ') for n in clauses_doc_i]
-	doc_clean = [n for n in doc_clean if (n not in ['texter', 'counselor', 'observer', '', '-- UNREADABLE MESSAGE --', '( 2/2 )', '( 1/2 )']) and (len(n)>5)]
-	
-	docs_clean_clauses_clean.append(doc_clean)
 
-df['docs_clean_clauses']  = docs_clean_clauses_clean
-conversation_ids = df['conversation_id'].values
 
-print(len(docs_clean_clauses_clean))
-
-df.to_csv('./data/input/ctl/X_test_all_with_interaction_preprocessed_24-03-07T04-25-04.csv')
 
 
 # # Encode embeddings and compute similarity
@@ -242,23 +249,10 @@ srl = dill.load(open("./../lexicon/data/input/lexicons/suicide_risk_lexicon_vali
 constructs_to_measure = ctl_tags13.copy()
 ctl_tags13_to_srl_name_mapping = srl_constructs.ctl_tags13_to_srl_name_mapping.copy()
 
-# TODO move to srl_constructs
 
 
 
-word_prototypes = {'suicide': ['suicide', 'want to die', 'kill myself'],
- 'self_harm': ['cut myself', 'self harm'],
- 'bully': ["bullied"],
- 'abuse_physical': ['physical abuse'],
- 'abuse_sexual': ['sexual abuse'],
- 'relationship': ['abusive'],
- 'bereavement': ["grief"],
- 'isolated': ['lonely'],
- 'anxiety': ['anxious'],
- 'depressed': ['depressed'],
- 'gender': ['gender'],
- 'eating': ['eating disorder'],
- 'substance': ['drugs', 'alcohol']}
+word_prototypes = srl_constructs.word_prototypes
 
 # # Encode lexicon
 # you want to encode each token once, because can appear in multiple lexicons
@@ -273,8 +267,10 @@ prior_embeddings = dill.load(open(embeddings_dir+'embeddings_lexicon-tokens_all-
 # For each SRL construct 
 
 
-# ============================================================
-run_this = True
+# ============================================================ 
+run_this = True # wont encode anything if already in prior embeddings
+
+import dill
 
 if run_this:
 
@@ -286,24 +282,24 @@ if run_this:
 	tokens_all = list(set(tokens_all))
 
 
-	import tensorboard
 	from sentence_transformers import SentenceTransformer
 	embeddings_name = 'all-MiniLM-L6-v2'
 	sentence_embedding_model = SentenceTransformer(embeddings_name)       # load embedding
-	# sentence_embedding_model._first_module().max_seq_length = 500
+	
 	print(sentence_embedding_model .max_seq_length) #default = 256
 	tokens_to_encode = [n for n in tokens_all if n not in prior_embeddings.keys()]
 			
-	
-	embeddings = sentence_embedding_model.encode(tokens_to_encode, convert_to_tensor=True,show_progress_bar=True)	
-	embeddings_d = dict(zip(tokens_to_encode, embeddings))
-	prior_embeddings.update(embeddings_d)
+	if tokens != []:
+		embeddings = sentence_embedding_model.encode(tokens_to_encode, convert_to_tensor=True,show_progress_bar=True)	
+		embeddings_d = dict(zip(tokens_to_encode, embeddings))
+		prior_embeddings.update(embeddings_d)
+		# save pickle of embeddings
+
+	with open(embeddings_dir+'embeddings_lexicon-tokens_all-MiniLM-L6-v2.pickle', 'wb') as handle:
+		dill.dump(prior_embeddings, handle, protocol=dill.HIGHEST_PROTOCOL)
+
 	# embeddings = pd.DataFrame(embeddings, columns = [f'{embeddings_name}_{str(n).zfill(4)}' for n in range(embeddings.shape[1])])
 
-# save pickle of embeddings
-import dill
-with open(embeddings_dir+'embeddings_lexicon-tokens_all-MiniLM-L6-v2.pickle', 'wb') as handle:
-	dill.dump(prior_embeddings, handle, protocol=dill.HIGHEST_PROTOCOL)
 
 
 ctl_tags13_to_srl_name_mapping = srl_constructs.ctl_tags13_to_srl_name_mapping
@@ -341,16 +337,6 @@ for ctl_construct, srl_constructs in ctl_tags13_to_srl_name_mapping.items():
 		construct_prototypes_embeddings_d[token] = prior_embeddings[token]
 
 
-
-
-
-
-# ============================================================
-
-
-
-
-
 # ============================================================
 
 
@@ -375,7 +361,7 @@ def clean_ctl_conversation(docs):
 		docs_clean_clauses_clean.append(doc_clean)
 	return docs_clean_clauses_clean
 
-
+# 20 sec
 docs_clean_clauses_clean = clean_ctl_conversation(docs_clean_clauses)
 
 df['docs_clean_clauses']  = docs_clean_clauses_clean
@@ -420,8 +406,10 @@ else:
 len(embeddings_tokens_docs_d.keys())
 
 
-# Lexicon single token
+# CTS using both types of construct representation (1 token and multiple) and for content validity test sets
 # ============================================================
+# ============================================================
+
 from importlib import reload
 reload(cts)
 
@@ -438,176 +426,176 @@ import numpy as np
 
 
 
-
-
-
-method = 'lexicon_clause'
-feature_vectors_i_wc, cosine_scores_docs_i_wc = cts.measure(
-			construct_tokens_d = construct_singletoken_tokens_d,
-			construct_embeddings_d = construct_singletoken_embeddings_d,
-			# docs = docs_clean_clauses,
-			docs_embeddings_d = embeddings_tokens_docs_d,
-			method = method, #todo: change to token, tokens, weighted_tokens
-			summary_stat = ['max'],
-			return_cosine_similarity=True,
-			minmaxscaler = (0,1)
-		)
-
-# TODO: Plot histogram for both groups before and after
-feature_vectors_i_wc.describe()
-dfs['test']['cts_token_clause'] = feature_vectors_i_wc.copy()
-
-
-# content validity test sets: extract features on these tokens
-# ===================================
-for split in ['X_test_content_validity_prototypicality-1_3', 'X_test_content_validity_prototypicality-3']:
-# for split in ['X_test_content_validity_prototypicality-3']:
-	df_i = dfs[split]['df_text'].copy()
-	df_i = df_i.reset_index()
-	df_i_index = df_i.index.values
-	print(df_i.shape)
-	docs = df_i['token'].tolist()
-
-	tokens_to_encode = [n for n in docs if n not in prior_embeddings.keys()]
-	if len(tokens_to_encode)>0:
-		embeddings = sentence_embedding_model.encode(tokens_to_encode, convert_to_tensor=True,show_progress_bar=True)	
-		embeddings_d = dict(zip(tokens_to_encode, embeddings))
-		prior_embeddings.update(embeddings_d)
-	
-	docs_embeddings = [[prior_embeddings[token]] for token in docs]
-	assert len([n for n in docs_embeddings if n is  None]) == 0 # if not encode
-
-	embeddings_tokens_docs_content_validity_d = dict(zip(df_i_index,docs_embeddings ))
-	method = 'lexicon_clause'
-	feature_vectors_i_wc_content, cosine_scores_docs_i_wc_content = cts.measure(
-			construct_tokens_d = construct_singletoken_tokens_d,
-			construct_embeddings_d = construct_singletoken_embeddings_d,
-			# docs = docs_clean_clauses,
-			docs_embeddings_d = embeddings_tokens_docs_content_validity_d,
-			method = method, #todo: change to token, tokens, weighted_tokens
-			summary_stat = ['max'],
-			return_cosine_similarity=True,
-			minmaxscaler = (0,1)
-		)
-	
-	if df_i.shape[0]==feature_vectors_i_wc_content.shape[0]:
-		df_i[feature_vectors_i_wc_content.columns] = feature_vectors_i_wc_content.values
-	
-	dfs[split]['cts_token_clause'] = df_i.copy()
-
-# Save 
-run_this = False #True saves, False loads
-if run_this:
-	# Save
-    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
-        pickle.dump(dfs, f) 
-else:
-	# Load
-    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
-    	dfs = pickle.load(f)
-
-
-
-# lexicon_protoypes
-# ============================================================
-from importlib import reload
-reload(cts)
-
-
-run_this = False
+run_this = False 
 
 if run_this:
-	method = 'lexicon_clause'
-	feature_vectors_lc, cosine_scores_docs_lc = cts.measure(
-				construct_tokens_d = construct_prototypes_tokens_d,
-				construct_embeddings_d = construct_prototypes_embeddings_d,
+	# Lexicon single token
+	# ============================================================
+	# computing similarity between 13 constructs and 13842 documents --> 1.40m
+	method = 'lexicon_clause' # single token - clauses
+	feature_vectors_i_wc, cosine_scores_docs_i_wc = cts.measure(
+				construct_tokens_d = construct_singletoken_tokens_d,
+				construct_embeddings_d = construct_singletoken_embeddings_d,
 				# docs = docs_clean_clauses,
 				docs_embeddings_d = embeddings_tokens_docs_d,
 				method = method, #todo: change to token, tokens, weighted_tokens
 				summary_stat = ['max'],
 				return_cosine_similarity=True,
-				minmaxscaler = (0,1)
+				minmaxscaler = (0,1) # scaling all values between 0 and 1. 
 			)
 
 	# TODO: Plot histogram for both groups before and after
-	feature_vectors_lc.describe()
-	dfs['test']['cts_prototypes_clause'] = feature_vectors_lc.copy()
-
-	feature_vectors_lc.to_csv('./data/input/ctl/X_test_all_with_interaction_cts_prototypes_clause.csv')
-
-	cosine_scores_docs_lc.keys()
-	# save dictionary using dill .pickle
-	import dill
-	dill.dump(cosine_scores_docs_lc, open('./data/input/ctl/X_test_all_with_interaction_cts_prototypes_clause_cosine_scores.dill', 'wb'))
+	feature_vectors_i_wc.describe()
+	dfs['test']['cts_token_clause'] = feature_vectors_i_wc.copy()
 
 
-# Save 
-run_this = True #True saves, False loads
-if run_this:
-	# Save
-    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
-        pickle.dump(dfs, f) 
-else:
-	# Load
-    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
-    	dfs = pickle.load(f)
+	# content validity test sets: extract features on these tokens
+	# ===================================
+	for split in ['X_test_content_validity_prototypicality-1_3', 'X_test_content_validity_prototypicality-3']:
+	# for split in ['X_test_content_validity_prototypicality-3']:
+		df_i = dfs[split]['df_text'].copy()
+		df_i = df_i.reset_index()
+		df_i_index = df_i.index.values
+		print(df_i.shape)
+		docs = df_i['token'].tolist()
 
+		tokens_to_encode = [n for n in docs if n not in prior_embeddings.keys()]
+		if len(tokens_to_encode)>0:
+			embeddings = sentence_embedding_model.encode(tokens_to_encode, convert_to_tensor=True,show_progress_bar=True)	
+			embeddings_d = dict(zip(tokens_to_encode, embeddings))
+			prior_embeddings.update(embeddings_d)
+		
+		docs_embeddings = [[prior_embeddings[token]] for token in docs]
+		assert len([n for n in docs_embeddings if n is  None]) == 0 # if not encode
 
+		embeddings_tokens_docs_content_validity_d = dict(zip(df_i_index,docs_embeddings ))
+		method = 'lexicon_clause'
+		feature_vectors_i_wc_content, cosine_scores_docs_i_wc_content = cts.measure(
+				construct_tokens_d = construct_singletoken_tokens_d,
+				construct_embeddings_d = construct_singletoken_embeddings_d,
+				# docs = docs_clean_clauses,
+				docs_embeddings_d = embeddings_tokens_docs_content_validity_d,
+				method = method, #todo: change to token, tokens, weighted_tokens
+				summary_stat = ['max'],
+				return_cosine_similarity=True,
+				minmaxscaler = (0,1)
+			)
+		
+		if df_i.shape[0]==feature_vectors_i_wc_content.shape[0]:
+			df_i[feature_vectors_i_wc_content.columns] = feature_vectors_i_wc_content.values
+		
+		dfs[split]['cts_token_clause'] = df_i.copy()
 
-# content validity test sets: extract features on these tokens
-# ===================================
-
-for split in ['X_test_content_validity_prototypicality-3']:
-# for split in ['X_test_content_validity_prototypicality-1_3', 'X_test_content_validity_prototypicality-3']:
-# for split in ['X_test_content_validity_prototypicality-3']:
-	df_i = dfs[split]['df_text'].copy()
-	df_i = df_i.reset_index()
-	df_i_index = df_i.index.values
-	print(df_i.shape)
-	docs = df_i['token'].tolist()
-
-	tokens_to_encode = [n for n in docs if n not in prior_embeddings.keys()]
-	if len(tokens_to_encode)>0:
-		embeddings = sentence_embedding_model.encode(tokens_to_encode, convert_to_tensor=True,show_progress_bar=True)	
-		embeddings_d = dict(zip(tokens_to_encode, embeddings))
-		prior_embeddings.update(embeddings_d)
-	
-	docs_embeddings = [[prior_embeddings[token]] for token in docs]
-	assert len([n for n in docs_embeddings if n is  None]) == 0 # if not encode
-
-	embeddings_tokens_docs_content_validity_d = dict(zip(df_i_index,docs_embeddings ))
-	method = 'lexicon_clause'
-	feature_vectors_i_lc_content, cosine_scores_docs_i_lc_content = cts.measure(
-			construct_tokens_d = construct_prototypes_tokens_d,
-			construct_embeddings_d = construct_prototypes_embeddings_d,
-			# docs = docs_clean_clauses,
-			docs_embeddings_d = embeddings_tokens_docs_content_validity_d,
-			method = method, #todo: change to token, tokens, weighted_tokens
-			summary_stat = ['max'],
-			return_cosine_similarity=True,
-			minmaxscaler = (0,1)
-		)
-	
-	if df_i.shape[0]==feature_vectors_i_lc_content.shape[0]:
-		df_i[feature_vectors_i_lc_content.columns] = feature_vectors_i_lc_content.values
-	
-	dfs[split]['cts_prototypes_clause'] = df_i.copy()
+	# Save 
+	run_this = False #True saves, False loads
+	if run_this:
+		# Save
+		with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
+			pickle.dump(dfs, f) 
+	else:
+		# Load
+		with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
+			dfs = pickle.load(f)
 
 
 
+	# lexicon_protoypes
+	# ============================================================
+	from importlib import reload
+	reload(cts)
+
+
+	run_this = False
+
+	if run_this:
+		method = 'lexicon_clause'
+		feature_vectors_lc, cosine_scores_docs_lc = cts.measure(
+					construct_tokens_d = construct_prototypes_tokens_d,
+					construct_embeddings_d = construct_prototypes_embeddings_d,
+					# docs = docs_clean_clauses,
+					docs_embeddings_d = embeddings_tokens_docs_d,
+					method = method, #todo: change to token, tokens, weighted_tokens
+					summary_stat = ['max'],
+					return_cosine_similarity=True,
+					minmaxscaler = (0,1)
+				)
+
+		# TODO: Plot histogram for both groups before and after
+		feature_vectors_lc.describe()
+		dfs['test']['cts_prototypes_clause'] = feature_vectors_lc.copy()
+
+		feature_vectors_lc.to_csv('./data/input/ctl/X_test_all_with_interaction_cts_prototypes_clause.csv')
+
+		cosine_scores_docs_lc.keys()
+		# save dictionary using dill .pickle
+		import dill
+		dill.dump(cosine_scores_docs_lc, open('./data/input/ctl/X_test_all_with_interaction_cts_prototypes_clause_cosine_scores.dill', 'wb'))
+
+
+	# Save 
+	run_this = True #True saves, False loads
+	if run_this:
+		# Save
+		with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
+			pickle.dump(dfs, f) 
+	else:
+		# Load
+		with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
+			dfs = pickle.load(f)
 
 
 
-# Save 
-run_this = True #True saves, False loads
-if run_this:
-	# Save
-    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
-        pickle.dump(dfs, f) 
-else:
-	# Load
-    with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
-    	dfs = pickle.load(f)
+	# content validity test sets: extract features on these tokens
+	# ===================================
+
+	for split in ['X_test_content_validity_prototypicality-3']:
+	# for split in ['X_test_content_validity_prototypicality-1_3', 'X_test_content_validity_prototypicality-3']:
+	# for split in ['X_test_content_validity_prototypicality-3']:
+		df_i = dfs[split]['df_text'].copy()
+		df_i = df_i.reset_index()
+		df_i_index = df_i.index.values
+		print(df_i.shape)
+		docs = df_i['token'].tolist()
+
+		tokens_to_encode = [n for n in docs if n not in prior_embeddings.keys()]
+		if len(tokens_to_encode)>0:
+			embeddings = sentence_embedding_model.encode(tokens_to_encode, convert_to_tensor=True,show_progress_bar=True)	
+			embeddings_d = dict(zip(tokens_to_encode, embeddings))
+			prior_embeddings.update(embeddings_d)
+		
+		docs_embeddings = [[prior_embeddings[token]] for token in docs]
+		assert len([n for n in docs_embeddings if n is  None]) == 0 # if not encode
+
+		embeddings_tokens_docs_content_validity_d = dict(zip(df_i_index,docs_embeddings ))
+		method = 'lexicon_clause'
+		feature_vectors_i_lc_content, cosine_scores_docs_i_lc_content = cts.measure(
+				construct_tokens_d = construct_prototypes_tokens_d,
+				construct_embeddings_d = construct_prototypes_embeddings_d,
+				# docs = docs_clean_clauses,
+				docs_embeddings_d = embeddings_tokens_docs_content_validity_d,
+				method = method, #todo: change to token, tokens, weighted_tokens
+				summary_stat = ['max'],
+				return_cosine_similarity=True,
+				minmaxscaler = (0,1)
+			)
+		
+		if df_i.shape[0]==feature_vectors_i_lc_content.shape[0]:
+			df_i[feature_vectors_i_lc_content.columns] = feature_vectors_i_lc_content.values
+		
+		dfs[split]['cts_prototypes_clause'] = df_i.copy()
+
+
+
+
+
+
+
+
+	if run_this:
+		# Save
+		with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'wb') as f:
+			pickle.dump(dfs, f) 
+
 
 
 
@@ -617,11 +605,14 @@ else:
 from sklearn.metrics import roc_curve
 import numpy as np
 
+
+# Load
+with open(f'./data/input/ctl/ctl_dfs_features_{task}.pkl', 'rb') as f:
+	dfs = pickle.load(f)
+
 # Example usage
 
 
-output_dir_i = output_dir+'ml_performance/'
-os.makedirs(output_dir_i,exist_ok=True)
 
 
 # 64,51,54 vs .4, .25, 56 (with much more training data)
@@ -635,7 +626,6 @@ def load_lexicon(path):
 srl = load_lexicon("./../lexicon/data/input/lexicons/suicide_risk_lexicon_validated_24-03-06T00-37-15.pickle")
 constructs_in_order = list(srl.constructs.keys())
 
-ts_i = datetime.datetime.utcnow().strftime('%y-%m-%dT%H-%M-%S')
 
 def create_binary_dataset(df_metadata, dv = 'suicide', n_per_dv = 3000):
 	df_metadata_tag_1 = df_metadata[df_metadata[dv]==1].sample(n=n_per_dv,random_state=123)
@@ -670,6 +660,7 @@ toy = False
 
 feature_vectors = [
 	'cts_token_clause',
+
 	'cts_prototypes_clause' 
 				   ] 
 
@@ -701,10 +692,12 @@ if toy:
 	feature_vectors = feature_vectors[:2]
 
 
+ts_i = datetime.datetime.utcnow().strftime('%y-%m-%dT%H-%M-%S')
 results = []
 results_content_validity = []
 # for gridsearch in [True]:
 from concept_tracker.utils import metrics_report
+from sklearn import metrics
 
 best_params = None
 
@@ -752,63 +745,47 @@ for feature_vector in feature_vectors:#['srl_unvalidated']:#, 'srl_unvalidated']
 		test_i_y_X = pd.merge(test_i_y,X_test_df_features, on='conversation_id')
 		y_test =  test_i_y_X[dv].values
 		y_proba_1 = test_i_y_X[feature_names].values
+		y_proba_1 = [n[0] for n in y_proba_1]
+		
+		optimal_threshold = np.round(metrics_report.find_optimal_threshold(y_test, y_proba_1),3)
+		threshold_05 = 0.5
 
 		
 		
-		# content validity test sets
-		# y_proba_1_13_dv = X_test_13[X_test_13['y_test']==dv][feature_names].values
-		# y_proba_1_13_dv = [n[0] for n in y_proba_1_13_dv]
-		# y_test_13_dv = [1]*len(y_proba_1_13_dv)
+		# content validity test sets. y_proba_1_3_dv = y_proba_1 for prototypicality==3
 		y_proba_1_3_dv = X_test_3[X_test_3['y_test']==dv][feature_names].values
 		y_proba_1_3_dv = [n[0] for n in y_proba_1_3_dv]
 		y_test_3_dv = [1]*len(y_proba_1_3_dv)
-		from sklearn import metrics
-		roc_auc = metrics.roc_auc_score(y_test, y_proba_1)
+		y_pred_3_dv = y_proba_1_3_dv>=optimal_threshold
+		y_pred_3_dv = [n*1 for n in y_pred_3_dv]
+		
+		
 		
 
-		optimal_threshold = np.round(metrics_report.find_optimal_threshold(y_test, y_proba_1),3)
-		threshold_05 = 0.5
+		
 		
 		for threshold in [threshold_05, optimal_threshold]:
 			y_pred = y_proba_1>=optimal_threshold*1                   # define your threshold
-			y_pred = [n[0]*1 for n in y_pred]			
+			y_pred = [n*1 for n in y_pred]			
 			dv_clean = dv.replace('_',' ').capitalize()
 			threshold_clean = str(threshold).replace('.', '')
-			cm_df_meaning, cm_df, cm_df_norm = metrics_report.cm(y_test,y_pred, output_dir_i, f'{feature_vector}_{dv}_thesh-{threshold_clean}', ts_i, classes = ['Other', f'{dv_clean}'], save=True)
-			# TODO: change to compute ROC AUC with y_proba
-			results_i = metrics_report.custom_classification_report(y_test, y_pred, y_proba_1, output_dir_i,gridsearch=gridsearch,
-									best_params=None,feature_vector=feature_vector,model_name=f'{feature_vector}_{dv}_thesh-{threshold_clean}',round_to = 2, ts = ts_i)
-		
-		reload(metrics_report)
-		# Predictions
-		y_pred_df = pd.DataFrame(y_proba_1)
-		model_name = feature_vector
-		
-		y_pred_df.to_csv(output_dir_i+f'y_pred_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}.csv', index=False)
-		# pd.DataFrame(y_proba_1_13_dv).to_csv(output_dir_i+f'y_proba_13_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}_thesh-{threshold_clean}.csv', index=False)
-		pd.DataFrame(y_proba_1_3_dv).to_csv(output_dir_i+f'y_proba_3_{feature_vector}_{model_name}_gridsearch-{gridsearch}_{n}_{ts_i}_{dv}_thesh-{threshold_clean}.csv', index=False)
+			output_filename = f'{feature_vector}_{dv_clean}_{n}_clauses-all_threshold-{threshold_clean}'
+			custom_cr, sklearn_cr, cm_df_meaning, cm_df, cm_df_norm, y_pred_df = metrics_report.save_classification_performance(y_test, y_pred, y_proba_1, output_dir_i, 
+																							output_filename=output_filename,feature_vector=feature_vector, model_name=None,best_params = None, classes = ['Other', f'{dv_clean}'],amount_of_clauses=None, save_output=True)
+			
+			output_filename = f'content-validity-3_{feature_vector}_{dv_clean}_{n}_clauses-all_threshold-{threshold_clean}'
+			custom_cr_content_validity, _, y_pred_df = metrics_report.save_classification_performance(y_test_3_dv, y_pred_3_dv, y_proba_1_3_dv, output_dir_i, 
+																							output_filename=output_filename,feature_vector=feature_vector, model_name=None,best_params = None, classes = ['Other', f'{dv_clean}'],amount_of_clauses=None, save_confusion_matrix = False, save_output=True)	
 
 		
-		# path = output_dir_i + f'{feature_vector}_{model_name}_{n}_{ts_i}_{dv}'
-		# cm_df_meaning, cm_df, cm_df_norm = metrics_report.cm(list(y_test),y_pred, output_dir_i, f'{model_name}_{dv}_thesh-{threshold_clean}', ts_i, classes = ['Other', f'{dv_clean}'], save=True)
-		# results_i = custom_classification_report(y_test, y_pred, y_proba_1, output_dir_i,gridsearch=gridsearch,
-		# 						best_params=best_params,feature_vector=feature_vector,model_name=f'{model_name}_{dv}_thesh-{threshold_clean}',round_to = 2, ts = ts_i)
+
 		
 		
-		# y_pred_13_dv = y_proba_1_13_dv>=optimal_threshold
-		# y_pred_13_dv = [n*1 for n in y_pred_13_dv]
-		y_pred_3_dv = y_proba_1_3_dv>=optimal_threshold
-		y_pred_3_dv = [n*1 for n in y_pred_3_dv]
-		# metrics.recall_score(y_test_13_dv, y_proba_1_13_dv)
-		# results_i_content_13 = metrics_report.custom_classification_report(y_test_13_dv, y_pred_13_dv, y_pred_13_dv, output_dir_i,gridsearch=gridsearch,
-		# 						best_params=best_params,feature_vector=feature_vector,model_name=f'{model_name}_{dv}_content-validity-13_thesh-{threshold_clean}',round_to = 2, ts = ts_i)
-		results_i_content_3 = metrics_report.custom_classification_report(y_test_3_dv, y_pred_3_dv, y_pred_3_dv, output_dir_i,gridsearch=gridsearch,
-								best_params=best_params,feature_vector=feature_vector,model_name=f'{feature_vector}_{model_name}_{dv}_content-validity-3_thesh-{threshold_clean}',round_to = 2, ts = ts_i)
-
-
-		results.append(results_i)
+		
+		
+		results.append(custom_cr)
 		# results_content_validity.append(results_i_content_13)
-		results_content_validity.append(results_i_content_3)
+		results_content_validity.append(custom_cr_content_validity)
 
 				
 	results_df = pd.concat(results)
