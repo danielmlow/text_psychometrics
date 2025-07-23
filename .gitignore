@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+data
+
 # C extensions
 *.so
 
@@ -163,3 +165,4 @@ data/input
 api_keys
 api_keys.py
 data
+api_keys.py
